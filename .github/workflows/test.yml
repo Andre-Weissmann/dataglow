@@ -144,6 +144,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:cleaningcrew
+      # Batch 5 (Whisper audio transcription, opt-in/desktop-first): added as
+      # steps in this SAME existing job rather than a new job-<name>.yml file
+      # -- the CI Architect convention (see NORTH_STAR.md) is to use spare
+      # room in an existing job before spending more of the reusable-workflow
+      # cap. audio-structurer was already real/tested pre-Batch-5 but had no
+      # CI job wired to it at all; audio-readiness-gate is new this batch.
+      - run: npm run test:audiostructurer
+      - run: npm run test:audioreadinessgate
+      - run: npm run test:audiotranscription
 
   # Inline job, kept as-is post-consolidation (see glow-canvas's comment above
   # for why) — NOT a job-<name>.yml or job-ci-batch-NN.yml. This job (Batch 1

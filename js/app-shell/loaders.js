@@ -16,6 +16,9 @@ import {
 import { isEnabled } from '../build/build-flags.js';
 import { buildOmopSample, buildFhirSample, flattenFhirBundle } from '../validation/health-standards.js';
 import { profilePdf, pdfProfileToRows, PDF_DATASET_COLUMNS } from '../cleaning-crew/pdf-profiler.js';
+import { transcribeAudioFile } from '../audio/whisper-file-transcriber.js';
+import { structureTranscription } from '../audio/audio-structurer.js';
+import { evaluateAudioReadiness } from '../audio/audio-readiness-gate.js';
 
 // Pure decision function, exported so it can be unit-tested directly (Node,
 // no DuckDB/browser needed) rather than only indirectly through loadFile's
@@ -218,6 +221,46 @@ export async function loadPdfAsDataset(file) {
     },
   });
   return { ds, profile };
+}
+
+// ============================================================
+// Audio transcription (Cleaning Crew, Batch 5 -- Whisper, opt-in,
+// desktop-first, blocked from agent use until a human confirms)
+// ============================================================
+// Mirrors loadPdfAsDataset above exactly in shape: transcribe (browser-only,
+// real WebGPU Whisper via whisper-file-transcriber.js), structure into a
+// dataset (pure, audio-structurer.js), evaluate readiness (pure,
+// audio-readiness-gate.js), then ingest via the SAME loadRowsAsDataset every
+// other format uses. NEVER called from loadFile's automatic dispatch --
+// unlike PDF, this is deliberately NOT wired into the general drag-and-drop
+// dispatch below, because Whisper transcription must stay an explicit,
+// opt-in action a human starts on purpose (it downloads a model and spends
+// real GPU time), not something that fires the moment an audio file touches
+// the drop zone. The Cleaning Crew tab's dedicated "Transcribe" button is the
+// only caller.
+//
+// @param {File|Blob} file the uploaded audio file (mp3/wav/m4a/flac)
+// @param {(p:{progress:number,text:string})=>void} [onProgress]
+// @returns {Promise<{ds:object, structured:object, readiness:object}>}
+export async function loadAudioAsDataset(file, onProgress) {
+  const segments = await transcribeAudioFile(file, onProgress);
+  const structured = structureTranscription(segments, file.name);
+  const readiness = evaluateAudioReadiness(segments);
+  const columnNames = structured.columns.map((c) => c.name);
+  const ds = await loadRowsAsDataset({
+    name: structured.datasetName,
+    columns: columnNames,
+    rows: structured.rows,
+    source: 'audio-transcript',
+    meta: {
+      format: 'Audio transcript',
+      sourceFile: file.name,
+      totalSegments: structured.meta.totalSegments,
+      totalDurationSec: structured.meta.totalDurationSec,
+      agentConsumable: readiness.gate.agentConsumable,
+    },
+  });
+  return { ds, structured, readiness };
 }
 
 // ============================================================

@@ -4182,10 +4182,12 @@
         "desktop"
       ],
       "area": "Universal ingestion & RAG (wave 2)",
-      "name": "Audio ingestion structurer (Whisper \u2192 structured transcript dataset)",
+      "name": "Audio ingestion (Whisper file transcription, opt-in, desktop-first) -> structured transcript dataset",
       "files": [
         "js/audio/audio-structurer.js",
-        "js/audio/whisper-worker.scaffold.js"
+        "js/audio/whisper-worker.scaffold.js",
+        "js/audio/whisper-file-transcriber.js",
+        "js/audio/audio-readiness-gate.js"
       ],
       "symbols": [
         {
@@ -4199,10 +4201,28 @@
         {
           "file": "js/audio/audio-structurer.js",
           "name": "buildAudioDatasetSummary"
+        },
+        {
+          "file": "js/audio/whisper-file-transcriber.js",
+          "name": "isFileTranscriptionAvailable"
+        },
+        {
+          "file": "js/audio/whisper-file-transcriber.js",
+          "name": "transcribeAudioFile"
+        },
+        {
+          "file": "js/audio/audio-readiness-gate.js",
+          "name": "buildAudioGateLayers"
+        },
+        {
+          "file": "js/audio/audio-readiness-gate.js",
+          "name": "evaluateAudioReadiness"
         }
       ],
-      "relatedFlags": [],
-      "status": "shipped"
+      "relatedFlags": [
+        "audioTranscription"
+      ],
+      "status": "behind-flag"
     },
     {
       "id": "ingestion-video-bridge",
