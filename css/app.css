@@ -928,3 +928,19 @@
 .pivot-result-empty { color: var(--color-text-muted); font-size: var(--text-sm); padding: var(--space-4) 0; }
 .pivot-result-meta { color: var(--color-text-muted); font-size: var(--text-xs); margin-bottom: var(--space-2); }
 .pivot-result-table-wrap { overflow-x: auto; }
+
+/* ---------------------------------------------------------------
+   Glow Canvas — drag-and-drop card reorder (Batch 3)
+   Decorative only: the actual reorder state lives in the layout
+   object (js/runtimes-viz/glow-canvas.js swapCards); this class is
+   toggled purely for visual feedback while a card is dragged over
+   another and never read back by any logic.
+   --------------------------------------------------------------- */
+.glow-canvas-card {
+  transition: outline 120ms ease, transform 120ms ease;
+}
+.glow-canvas-card--drag-over {
+  outline: 2px dashed var(--color-accent, #0A7E8C);
+  outline-offset: -2px;
+  transform: scale(0.98);
+}

@@ -1739,7 +1739,7 @@
         "desktop"
       ],
       "area": "Language runtimes & visualization",
-      "name": "Glow Canvas (multi-chart dashboard, Batch 2: cross-filtering)",
+      "name": "Glow Canvas (multi-chart dashboard, Batch 3: drag-to-reorder)",
       "files": [
         "js/runtimes-viz/glow-canvas.js",
         "js/app-shell/tabs/glow-canvas-tab.js"
@@ -1764,6 +1764,10 @@
         {
           "file": "js/runtimes-viz/glow-canvas.js",
           "name": "toggleFilter"
+        },
+        {
+          "file": "js/runtimes-viz/glow-canvas.js",
+          "name": "swapCards"
         }
       ],
       "relatedFlags": [
