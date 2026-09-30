@@ -4187,7 +4187,10 @@
         "js/audio/audio-structurer.js",
         "js/audio/whisper-worker.scaffold.js",
         "js/audio/whisper-file-transcriber.js",
-        "js/audio/audio-readiness-gate.js"
+        "js/audio/audio-readiness-gate.js",
+        "js/audio/audio-pcm.js",
+        "js/audio/transcript-review.js",
+        "js/audio/media-transcription-station.js"
       ],
       "symbols": [
         {
@@ -4234,7 +4237,8 @@
       "name": "Video ingestion bridge (audio-only, Batch 1)",
       "files": [
         "js/video/video-ingestion-bridge.js",
-        "js/video/webcodecs-audio-extractor.scaffold.js"
+        "js/video/webcodecs-audio-extractor.scaffold.js",
+        "js/video/video-audio-extractor.js"
       ],
       "symbols": [
         {
@@ -4254,8 +4258,8 @@
           "name": "buildVideoTranscriptDatasetName"
         }
       ],
-      "relatedFlags": [],
-      "status": "shipped"
+      "relatedFlags": ["videoTranscription", "audioTranscription", "cleaningCrew"],
+      "status": "behind-flag"
     },
     {
       "id": "ingestion-pdf-bridge",
