@@ -3458,3 +3458,40 @@ by reading the scaffold's source directly, not by assumption. After this batch (
 real, queryable local dataset it genuinely could not handle before. This is a real new
 capability, not a UX polish pass -- but it ships dark behind its flag until a separate,
 explicit enable step, so it does not change what a live user can do today.
+
+## 2026-09-29: Video audio extraction and shared transcript-review correction
+
+Build scope: root ES-module Cleaning Crew, not the separately inlined canvas app.
+Video is implemented behind **`videoTranscription: false`**; build, merge and
+enable are distinct. Audio was separately enabled in PR #706 and remains enabled.
+
+**Correction to the preceding Batch 5 account:** PR #705's UI said human review
+was required, but its loader immediately imported transcripts and its gate passed
+nonempty text without confirmation. The reassuring source-string tests did not
+prove enforcement. This batch replaces that behavior with private, editable,
+revision-bound pending reviews outside DuckDB/state and single-use explicit named
+approval before import. Text presence and approval do not prove word accuracy.
+
+The new local Mediabunny/WebCodecs path extracts the primary audio track from
+MP4/MOV/WebM, downmixes all channels and resamples to the shared 16kHz Whisper
+input. It rejects files above 200 MiB and audio timelines above 10 minutes,
+discloses multiple tracks, and never decodes video frames. Runtime/model downloads
+require opt-in; there is no cloud-transcription fallback.
+
+Actual MP4/AAC, MOV/AAC and WebM/Opus extraction passed in Chromium with right-only
+stereo fixtures, with no external requests during extraction. Actual review UI and
+DuckDB import passed using explicitly substituted model output. Review replay,
+edit invalidation, discard, cancellation, malformed input, missing audio,
+unsupported codec and duration/size guards were checked. Layout checks passed at
+1440, 768, 375 and 320 pixels; they do not establish physical-device parity.
+
+**ASR proof remains open:** real Whisper downloaded and initialized but did not
+finish within 180 seconds on sandbox Chromium's software WebGPU adapter. No
+successful end-to-end transcription or accuracy result is claimed. Native Tauri,
+physical mobile and Safari remain untested; the desktop staging allowlist's
+missing root flags manifest is a separate pre-existing follow-up.
+
+The implementation plan is `docs/video-implementation-plan.md`; the architecture,
+limits and test reproduction are in `docs/video-ingestion.md`. Live/API feed
+refresh polish remains a separate Glow Compiler backlog item, so this is not the
+last remaining batch of the entire roadmap.

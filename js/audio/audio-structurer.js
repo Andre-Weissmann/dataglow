@@ -65,7 +65,7 @@ export function validateTranscriptionInput(whisperSegments) {
       return { valid: false, error: `segment ${i} is missing a valid timestamp [start, end] pair` };
     }
     const [start, end] = seg.timestamp;
-    if (typeof start !== 'number' || typeof end !== 'number') {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start) {
       return { valid: false, error: `segment ${i} has a non-numeric timestamp` };
     }
     if (typeof seg.text !== 'string') {

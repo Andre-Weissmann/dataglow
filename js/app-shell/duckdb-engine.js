@@ -505,7 +505,7 @@ export async function createTableFromParquet(tableName, fileName) {
   await runQuery(`CREATE OR REPLACE TABLE ${tableName} AS SELECT * FROM read_parquet('${fileName}')`);
 }
 
-export async function createTableFromRows(tableName, columns, rows) {
+export async function createTableFromRows(tableName, columns, rows, { preserveTextColumns = [] } = {}) {
   // Fallback path: build table from JS objects (used for Excel/SQLite parsed data & golden dataset)
   const conn = state.duckdb.conn;
   const colDefs = columns.map(c => `"${c}" VARCHAR`).join(', ');
@@ -529,6 +529,7 @@ export async function createTableFromRows(tableName, columns, rows) {
   // Only coerce when ALL non-null values in the column successfully cast —
   // otherwise leave as VARCHAR (prevents silently nulling out text/date columns).
   for (const c of columns) {
+    if (preserveTextColumns.includes(c)) continue;
     const safeCol = `"${c}"`;
     try {
       const { rows: checkRows } = await runQuery(

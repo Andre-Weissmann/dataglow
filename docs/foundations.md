@@ -12,6 +12,7 @@ Self-contained, one-per-foundation notes for the CI/infra foundations and
 reusable capabilities that shape how work is done here. Newest first.
 
 <!-- NEW-FOUNDATION-ENTRIES-BELOW: append new entries directly under this line, do not edit existing entries above -->
+- **Media quarantine (2026-09-29):** Audio/video transcript drafts remain in a private review object outside DuckDB/state until a named local reviewer explicitly confirms the current revision. Edits invalidate approval; confirmations are single-use, locked before asynchronous import, and cancel/discard create no dataset. This replaces the incorrect assumption that the old nonempty-text score itself enforced human review. WebCodecs extraction uses locally vendored Mediabunny with retained MPL-2.0 license; see `docs/video-ingestion.md`. Browser decoding proof and deterministic ASR-double UI proof are recorded separately.
 
 ### Auto-resync stale feature PRs against a fast-moving main — opt-in, conflict-free-only, never merges
 
@@ -1622,4 +1623,3 @@ this file is now wrong (correct the reference here), or this file is right and t
 code regressed (restore or rename the code). Do whichever is actually true, in the
 same PR — never silence the check by deleting a reference that should still
 resolve.
-

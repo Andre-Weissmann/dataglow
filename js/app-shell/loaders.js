@@ -16,9 +16,11 @@ import {
 import { isEnabled } from '../build/build-flags.js';
 import { buildOmopSample, buildFhirSample, flattenFhirBundle } from '../validation/health-standards.js';
 import { profilePdf, pdfProfileToRows, PDF_DATASET_COLUMNS } from '../cleaning-crew/pdf-profiler.js';
-import { transcribeAudioFile } from '../audio/whisper-file-transcriber.js';
-import { structureTranscription } from '../audio/audio-structurer.js';
-import { evaluateAudioReadiness } from '../audio/audio-readiness-gate.js';
+import { transcribeAudioFile, transcribePcm } from '../audio/whisper-file-transcriber.js';
+import { createTranscriptReview } from '../audio/transcript-review.js';
+import { extractVideoAudio } from '../video/video-audio-extractor.js';
+import { buildVideoTranscriptDatasetName } from '../video/video-ingestion-bridge.js';
+import { requireMediaConsent, checkAbort } from '../audio/audio-pcm.js';
 
 // Pure decision function, exported so it can be unit-tested directly (Node,
 // no DuckDB/browser needed) rather than only indirectly through loadFile's
@@ -164,10 +166,10 @@ export async function loadFile(file) {
 // DuckDB table, register it in app state, and anchor the Chain of Custody to the
 // rows the analyst started from. Used by the Databricks Direct-Connect connector
 // so a warehouse query result becomes a local table just like an imported CSV.
-export async function loadRowsAsDataset({ name, columns, rows, source = 'rows', meta = {} }) {
+export async function loadRowsAsDataset({ name, columns, rows, source = 'rows', meta = {}, preserveTextColumns = [] }) {
   const tableName = uniqueTableName(sanitizeTableName(name));
   try {
-    await engine.createTableFromRows(tableName, columns, rows);
+    await engine.createTableFromRows(tableName, columns, rows, { preserveTextColumns });
     const rowCount = await engine.getRowCount(tableName);
     const schema = await engine.getTableSchema(tableName);
     const ds = {
@@ -223,44 +225,49 @@ export async function loadPdfAsDataset(file) {
   return { ds, profile };
 }
 
-// ============================================================
-// Audio transcription (Cleaning Crew, Batch 5 -- Whisper, opt-in,
-// desktop-first, blocked from agent use until a human confirms)
-// ============================================================
-// Mirrors loadPdfAsDataset above exactly in shape: transcribe (browser-only,
-// real WebGPU Whisper via whisper-file-transcriber.js), structure into a
-// dataset (pure, audio-structurer.js), evaluate readiness (pure,
-// audio-readiness-gate.js), then ingest via the SAME loadRowsAsDataset every
-// other format uses. NEVER called from loadFile's automatic dispatch --
-// unlike PDF, this is deliberately NOT wired into the general drag-and-drop
-// dispatch below, because Whisper transcription must stay an explicit,
-// opt-in action a human starts on purpose (it downloads a model and spends
-// real GPU time), not something that fires the moment an audio file touches
-// the drop zone. The Cleaning Crew tab's dedicated "Transcribe" button is the
-// only caller.
-//
-// @param {File|Blob} file the uploaded audio file (mp3/wav/m4a/flac)
-// @param {(p:{progress:number,text:string})=>void} [onProgress]
-// @returns {Promise<{ds:object, structured:object, readiness:object}>}
-export async function loadAudioAsDataset(file, onProgress) {
-  const segments = await transcribeAudioFile(file, onProgress);
-  const structured = structureTranscription(segments, file.name);
-  const readiness = evaluateAudioReadiness(segments);
-  const columnNames = structured.columns.map((c) => c.name);
-  const ds = await loadRowsAsDataset({
-    name: structured.datasetName,
-    columns: columnNames,
-    rows: structured.rows,
-    source: 'audio-transcript',
-    meta: {
-      format: 'Audio transcript',
-      sourceFile: file.name,
-      totalSegments: structured.meta.totalSegments,
-      totalDurationSec: structured.meta.totalDurationSec,
-      agentConsumable: readiness.gate.agentConsumable,
-    },
+// No engine writes or dataset-registry entries until confirmation. Pending
+// review objects are deliberately not persisted or placed on window/state.
+const pendingMedia = new WeakMap();
+function requireMediaFlags(kind) {
+  if (!isEnabled('cleaningCrew') || !isEnabled('audioTranscription')
+    || (kind === 'video' && !isEnabled('videoTranscription'))) {
+    throw new Error('This transcription feature is disabled.');
+  }
+}
+
+export async function prepareAudioTranscript(file, options = {}) {
+  requireMediaFlags('audio');
+  requireMediaConsent(options);
+  const segments = await transcribeAudioFile(file, options);
+  checkAbort(options.signal);
+  const review = createTranscriptReview(segments, `${file.name} (transcript)`, {
+    source: 'audio-transcript', sourceFile: file.name,
   });
-  return { ds, structured, readiness };
+  pendingMedia.set(review, 'audio');
+  return review;
+}
+
+export async function prepareVideoTranscript(file, options = {}) {
+  requireMediaFlags('video');
+  requireMediaConsent(options);
+  const { audio, metadata } = await extractVideoAudio(file, options);
+  const segments = await transcribePcm(audio, options);
+  checkAbort(options.signal);
+  const review = createTranscriptReview(segments, buildVideoTranscriptDatasetName(file.name), metadata);
+  pendingMedia.set(review, 'video');
+  return review;
+}
+
+export async function confirmMediaTranscript(review, confirmation) {
+  const kind = pendingMedia.get(review);
+  if (!kind) throw new Error('Unknown or already imported transcript review.');
+  requireMediaFlags(kind);
+  return review.confirmAndImport(confirmation, async payload => {
+    pendingMedia.delete(review);
+    const ds = await loadRowsAsDataset({ ...payload, preserveTextColumns: ['text'] });
+    ds.transcriptReview = payload.meta;
+    return ds;
+  });
 }
 
 // ============================================================

@@ -1,103 +1,40 @@
-# DATAGLOW Video Ingestion
+# Video audio transcripts
 
-Video ingestion extends the Universal Drop Zone to accept video files, so a
-spoken-word video becomes the same kind of structured, queryable dataset that
-audio ingestion already produces — without the file ever leaving the browser.
+The implemented path is in the root ES-module app's Cleaning Crew tab, behind default-off `videoTranscription`. It also requires `cleaningCrew` and `audioTranscription`; this is not a claim of delivery in the separate `canvas/index.html` UI.
 
-## 1. What video ingestion does
+## What happens
 
-Drop an `.mp4`, `.mov`, or `.webm` file onto DataGlow's drop zone:
+- **Opt in:** choose a local MP4, MOV or WebM after agreeing to on-device transcription and generic model/runtime downloads. Dropping a file elsewhere never starts this.
+- **Extract:** the locally bundled Mediabunny 1.61.0 demuxer reads the file and a browser WebCodecs AudioDecoder decodes the primary audio track. Other audio tracks are counted and disclosed, not silently merged. No video frames are decoded.
+- **Transcribe:** the shared audio-file Whisper path receives bounded, 16kHz mono PCM with timeline offsets retained. The file and transcript are not uploaded; first use needs downloads of generic model/runtime files.
+- **Review:** editable timestamped text stays outside DuckDB and the app dataset registry. A local reviewer name plus an explicit approval of the exact revision is required. Editing resets approval; cancel/discard imports nothing.
+- **Import:** a single-use confirmation creates ordinary queryable segment rows and records review metadata in provenance. The transcript's `text` column stays text, even for strings such as `00123`.
 
-1. The audio track is extracted **in the browser** — no upload, no server.
-2. The extracted audio is transcribed by the same Whisper pipeline used for
-   plain audio files (`js/audio/whisper-worker.scaffold.js`, from PR M).
-3. The transcript is structured through the existing audio structurer and
-   loaded into DuckDB as a queryable table — a dataset you can filter, join,
-   and analyze exactly like any other DataGlow dataset.
+The use of audio sinks and local BlobSource follows the [Mediabunny quick start](https://mediabunny.dev/guide/quick-start). Decoder availability is browser-dependent, as documented in [supported formats and codecs](https://mediabunny.dev/guide/supported-formats-and-codecs).
 
-The output is intentionally identical in shape to audio ingestion's output.
-Video ingestion is a **bridge** into the existing pipeline, not a parallel one.
+## Boundaries
 
-## 2. The two-step architecture
+- Maximum input: 200 MiB; maximum audio timeline: 10 minutes. These are enforced guardrails, not performance promises.
+- Supported containers do not imply every codec works. Missing audio, unsupported codec, invalid file, unavailable WebCodecs or unavailable WebGPU stops with an error. There is no cloud fallback.
+- Speech recognition is assistive. Text presence, successful decoding and human approval do not certify word accuracy. Silence/noise may still lead Whisper to invent words.
+- No scene understanding, frame OCR, speaker diarization, clinical interpretation or automatic summaries.
+- Cancellation during decoding disposes the input. A running Whisper inference/model download may finish before stopping, but a cancelled result cannot be imported.
+- No immediate replay player in this panel: review against the original recording in your media player.
+- Native Tauri, Safari and physical mobile devices require independent runtime proof. A compile pass or narrow Chromium viewport is not equivalent.
+- Pending drafts are session-local and discarded on rerender/reload. Review metadata is not a cryptographic identity or an arbitrary-JavaScript security boundary.
 
-**Step 1 — Audio extraction (browser-side, this PR's scaffold)**
+## Modules and tests
 
-Two patterns, both documented in
-[`js/video/webcodecs-audio-extractor.scaffold.js`](../js/video/webcodecs-audio-extractor.scaffold.js):
+`js/video/video-audio-extractor.js` is the real extractor. `js/video/video-ingestion-bridge.js` contains validation/naming helpers; the old `webcodecs-audio-extractor.scaffold.js` is historical reference, not imported.
 
-- **Pattern A — `AudioContext.decodeAudioData`.** Reads the whole file into
-  memory and lets the browser's native media decoder pull the audio track out
-  of the MP4/MOV/WebM container. Simple, widely supported, covers 95%+ of
-  cases. This is the recommended default.
-- **Pattern B — WebCodecs `AudioDecoder`/`VideoDecoder`.** Lower-level, more
-  control, needed for edge cases Pattern A can't decode (very large files,
-  unusual codecs). Scaffolded but not implemented — requires a demuxer
-  (e.g. MP4Box.js) to pull encoded chunks out of the container first.
+Shared processing lives in `js/audio/audio-pcm.js`, `js/audio/whisper-file-transcriber.js`, `js/audio/transcript-review.js`, `js/audio/audio-readiness-gate.js` and `js/audio/media-transcription-station.js`. The root loaders enforce flags at prepare and confirm.
 
-**Step 2 — Whisper Web Worker (already exists, from PR M)**
+Run `npm run test:mediareview`, `npm run test:audioreadinessgate` and `npm run test:videobrowser`. Fixtures in `test/video/fixtures` are synthetic; regenerate using `bash test/video/generate-fixtures.sh` with FFmpeg. Browser tests use real container decoding and DuckDB, but a clearly separated deterministic model double for review/SQL tests. Optional `MEDIA_REAL_WHISPER=1` attempts real WebGPU inference and writes separate evidence; it is not part of ordinary CI.
 
-The extracted `Float32Array` audio + sample rate is handed off exactly the way
-a plain audio file would be:
+### September 29, 2026 runtime evidence
 
-```js
-worker.postMessage({ type: 'transcribe', audioData: mono, sampleRate: audioBuffer.sampleRate });
-```
+Actual MP4/AAC, MOV/AAC and WebM/Opus decoding passed in Chromium, preserving signal from a right-only stereo fixture. No external requests occurred during those extraction checks. Negative paths covered missing audio, corrupt input, absent consent, cancellation, oversized files, unsupported codec and a 601-second audio timeline. Multiple tracks were disclosed.
 
-From here, video ingestion is indistinguishable from audio ingestion: the same
-transcription, structuring, and DuckDB load steps run unchanged.
+The actual root-tab review UI and DuckDB import were tested with deterministic substituted Whisper output. This proves the review/import boundary, not speech recognition. Desktop (1440px), tablet (768px), mobile (375px) and narrow (320px) layouts had no horizontal overflow; this is not physical-device parity.
 
-## 3. WebCodecs browser support matrix
-
-| Browser | Support |
-| --- | --- |
-| Chrome 94+ | ✓ Full |
-| Edge 94+ | ✓ Full |
-| Safari (2026) | ✓ Full (Technology Preview → Stable) |
-| Firefox | Partial — `AudioDecoder` available, `VideoDecoder` in progress |
-
-Pattern A (`AudioContext.decodeAudioData`) does not require `AudioDecoder` /
-`VideoDecoder` directly, so it works even on browsers with partial WebCodecs
-support — this is why it's the recommended default pattern.
-
-## 4. Current limitations
-
-- **Audio track only.** No frame captioning yet — `frameExtractionStatus` is
-  reported as `not_implemented` in the manifest, honestly, rather than
-  implying a capability that doesn't exist.
-- **No vision analysis.** Frame extraction is scaffolded
-  (`frameExtractionScaffold()`) but not implemented.
-- **File size.** Under 500MB required; over 200MB triggers a warning that
-  transcription may take several minutes.
-- **No wiring into the Drop Zone UI yet.** This PR establishes the pure-logic
-  bridge and the extraction pattern; UI integration is a follow-up batch.
-
-## 5. Future: frame extraction + local vision captioning
-
-Once local vision models (LLaVA, Moondream, or similar, running via WebGPU)
-mature enough for in-browser use, DataGlow will extract a `VideoFrame` every
-3-4 seconds, caption it with the local vision model, and cross-index those
-captions with the transcript by timestamp:
-
-```
-{ timestamp_sec, caption, objects: [...] }
-```
-
-Merged with the transcript by timestamp, this becomes a single, fully
-queryable video dataset — "what was said" and "what was shown" indexed
-together in DuckDB. `extractionMode` will move from `'audio_only'` to
-`'audio_and_frames'` once this lands.
-
-## 6. Example use cases
-
-- **Body camera footage analysis** — EMS and law enforcement reviewing and
-  indexing incident recordings.
-- **Interview recordings** — insurance, HR, and qualitative-research
-  interviews turned into searchable transcripts.
-- **Training video indexing** — making internal training libraries
-  queryable by spoken content.
-- **Security footage annotation** — transcribing any spoken audio captured
-  alongside security video, with frame captioning as a future enhancement.
-
----
-
-Part of: DataGlow Canvas — Multimodal ingestion (Tier 1, Zach Wilson "Variety" dimension)
+Real Whisper downloaded and initialized using sandbox Chromium's software WebGPU adapter, but did not complete within 180 seconds. End-to-end ASR and word accuracy remain unproven in this run. Hardware-backed runtime verification is a follow-up before recommending enablement.
