@@ -2834,11 +2834,11 @@ closes:
    (ingestion streaming first, OPFS persistence layer second), both proven against a real load larger than
    fits comfortably in-memory/in-session today. See the two dated "Test findings" entries below for each
    half's real bugs found (one in the streaming half, two in the OPFS half), implementation, and live-proof
-   evidence — both halves are flag-gated OFF by default (`streamingIngestion`, `opfsPersistence`), zero
-   behavior change for any user until explicitly enabled, and OPFS persistence additionally requires the
-   user to separately opt in via its own Settings consent toggle even once the flag is on. Not yet
-   independently proven on the Tauri desktop shell or a real mobile browser — an explicit platform-parity
-   gap for a future pass, not silently assumed identical.
+   evidence — both halves (`streamingIngestion`, `opfsPersistence`) were promoted live on 2026-11-21 after
+   PR #710 proved staged Tauri desktop bundle flag parity, 2-tab OPFS lock fallback (`Tab 2` falls back to
+   isolated in-memory DuckDB without corrupting `Tab 1`), and `390x844` mobile-viewport `101.5 MB` (920k-row)
+   streaming CSV ingestion; OPFS persistence still requires explicit user opt-in via the Settings consent
+   toggle. Native Tauri WebView and physical mobile hardware remain unverified beyond Chromium.
 3. **✅ DONE (2026-09-26) -- Pay down the `main.js` monolith.** Every one of the 182 flags' UI wiring used
    to land in one giant file — the single largest structural risk in the codebase. Scope: extract
    tab-rendering logic into per-tab modules, following the same pure-core/thin-UI split already used for

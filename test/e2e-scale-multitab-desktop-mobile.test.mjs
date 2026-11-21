@@ -127,8 +127,8 @@ async function main() {
   const diskManifestBefore = readFileSync(join(REPO_ROOT, 'flags.manifest.json'), 'utf8');
   const diskFlags = JSON.parse(diskManifestBefore).flags;
   const diskFlagCount = Object.keys(diskFlags).length;
-  ok('flags.manifest.json on disk ships opfsPersistence=false', diskFlags.opfsPersistence.enabled === false);
-  ok('flags.manifest.json on disk ships streamingIngestion=false', diskFlags.streamingIngestion.enabled === false);
+  ok('flags.manifest.json on disk ships opfsPersistence=true', diskFlags.opfsPersistence.enabled === true);
+  ok('flags.manifest.json on disk ships streamingIngestion=true', diskFlags.streamingIngestion.enabled === true);
 
   const plain = await startServer({ scale: false });
   const scaled = await startServer({ scale: true });
@@ -159,11 +159,11 @@ async function main() {
       });
       ok(`all ${diskFlagCount} flags from the manifest loaded live in the staged bundle`, live.count === diskFlagCount, `live=${live.count} disk=${diskFlagCount}`);
       ok('glowCanvas + audioTranscription enabled, videoTranscription disabled', live.glow && live.audio && !live.video);
-      ok('opfsPersistence + streamingIngestion stay OFF with the unmodified manifest', !live.opfs && !live.stream);
+      ok('opfsPersistence + streamingIngestion load ON with the unmodified manifest', live.opfs && live.stream);
       ok('Glow Canvas tab mounts in the staged desktop frontend',
         (await page.locator('#tabbar .tab[data-tab="glowcanvas"]').count()) === 1);
       const eng = await engineState(page);
-      ok('OPFS persistence inactive and no fallback reason when the flag is off', eng.active === false && eng.reason === null);
+      ok('OPFS persistence stays inactive with no fallback reason until Settings consent is enabled', eng.active === false && eng.reason === null);
       await context.close();
     }
 

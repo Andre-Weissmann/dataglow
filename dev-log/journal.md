@@ -7,6 +7,13 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-11-21 12:40 CT] Roadmap Step 7 Complete — Enable streamingIngestion & opfsPersistence (PR #714)
+
+- **Asked:** Turn on `streamingIngestion` and `opfsPersistence` to complete Step 7 after reviewing PR #710's staged-desktop, 2-tab OPFS fallback, and mobile 101.5 MB streaming proof.
+- **Built:** Flipped `streamingIngestion` and `opfsPersistence` to `true` in `flags.manifest.json`, updated `capability-map.manifest.json`, `docs/capability-map.md`, `NORTH_STAR.md`, and `test/e2e-scale-multitab-desktop-mobile.test.mjs` (verifying both load live while OPFS still awaits explicit Settings user consent).
+- **Outcome:** Shipped live via PR #714; 184 flags now live, 6 flags dark.
+- **Lesson for next time:** Keep `flags.manifest.json` strictly ASCII (`--`, never `\u2014`) because `bundle17` and `bundle18` enforce a zero-em-dash contract across the manifest.
+
 ## [2026-11-21 12:30 CT] Roadmap Wave Steps 2, 5–10 — Tauri flags fix, Drill Floor split, OPFS/streaming proof, Glow Canvas refresh & storytelling, Polyglot write-back, Governance & 49-module breadth stress proof (PRs #709–#713)
 
 - **Asked:** Execute Steps 2–10 of the reorganized DataGlow roadmap checklist ("Do all this").
