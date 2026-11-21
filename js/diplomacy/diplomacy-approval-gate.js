@@ -65,6 +65,13 @@ export function createApprovalRequest({ reconciliationResult, partyAId, partyBId
   };
 }
 
+// Own-property check, NOT the `in` operator: `'toString' in approvals` and
+// `'constructor' in approvals` are true via the prototype chain, which let a
+// non-party ("constructor", "toString", ...) approve or even unilaterally reject.
+function isParty(request, partyId) {
+  return typeof partyId === 'string' && Object.prototype.hasOwnProperty.call(request.approvals || {}, partyId);
+}
+
 function bothApproved(request) {
   return request.approvals[request.partyAId] === true && request.approvals[request.partyBId] === true;
 }
@@ -106,7 +113,7 @@ function approvalRecordContent(request) {
  */
 export async function approve(request, partyId) {
   if (!request || typeof request !== 'object') return { ok: false, error: 'No request given.' };
-  if (!(partyId in request.approvals)) {
+  if (!isParty(request, partyId)) {
     return { ok: false, error: `Unknown party "${partyId}" — not one of this request's two parties.` };
   }
   if (request.status === 'rejected') {
@@ -144,7 +151,7 @@ export async function approve(request, partyId) {
  */
 export function reject(request, partyId, note = '') {
   if (!request || typeof request !== 'object') return { ok: false, error: 'No request given.' };
-  if (!(partyId in request.approvals)) {
+  if (!isParty(request, partyId)) {
     return { ok: false, error: `Unknown party "${partyId}" — not one of this request's two parties.` };
   }
   if (request.status === 'applied') {

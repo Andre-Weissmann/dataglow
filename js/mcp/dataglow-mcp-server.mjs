@@ -72,10 +72,15 @@ import { fileURLToPath } from 'node:url';
 
 import { computeReadinessGate, explainGateReasons, DEFAULT_THRESHOLD } from '../gate/readiness-gate.js';
 import { evaluateAgentReadiness } from '../gate/agent-gate.js';
+import { checkMetricAccessFromGateState } from '../metrics/metric-access-rules.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = resolve(__dirname, '..', '..');
-const GATE_STATE_PATH = resolve(PROJECT_ROOT, 'dataglow-gate-state.json');
+// DATAGLOW_GATE_STATE_PATH overrides the default location (used by tests and by
+// teams that keep per-project exports elsewhere).
+const GATE_STATE_PATH = process.env.DATAGLOW_GATE_STATE_PATH
+  ? resolve(process.env.DATAGLOW_GATE_STATE_PATH)
+  : resolve(PROJECT_ROOT, 'dataglow-gate-state.json');
 
 const SERVER_NAME = 'dataglow';
 const SERVER_VERSION = '1.0.0';
@@ -716,6 +721,42 @@ async function getPrompt(name, args) {
   throw new Error('Unknown prompt: ' + name);
 }
 
+// ── Tool: check_metric_access (Roadmap Step 10b) ───────────────
+// Read-authorization check against the metric access rules exported in the gate
+// state. Enforcement is dark by default: it only applies when the exported gate
+// state carries metricAccessEnforcement: true. With no rule for a metric the
+// default is open access (documented MetricAccessRuleRegistry behavior).
+
+const CHECK_METRIC_ACCESS_TOOL = {
+  name: 'check_metric_access',
+  description:
+    'Check whether an agent is authorized to READ (query) a governed DataGlow metric before ' +
+    'you use its value. Returns allowed (boolean), whether enforcement is active, and whether a ' +
+    'rule is configured. If allowed is false, do NOT query or report that metric.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      metric_id: { type: 'string', description: 'The metric id/name to check.' },
+      agent_id: { type: 'string', description: 'The identifier of the agent/source asking (e.g. claude-code, cursor).' },
+    },
+    required: ['metric_id', 'agent_id'],
+  },
+};
+
+async function handleCheckMetricAccess(args) {
+  const metricId = args && args.metric_id;
+  const agentId = args && args.agent_id;
+  if (typeof metricId !== 'string' || !metricId || typeof agentId !== 'string' || !agentId) {
+    return {
+      content: [{ type: 'text', text: JSON.stringify({ error: 'invalid_arguments', message: 'metric_id and agent_id are required non-empty strings.', allowed: false }, null, 2) }],
+      isError: true,
+    };
+  }
+  const state = await loadGateState();
+  const verdict = checkMetricAccessFromGateState(state, metricId, agentId);
+  return { content: [{ type: 'text', text: JSON.stringify(verdict, null, 2) }] };
+}
+
 // ── Server wiring ─────────────────────────────────────────────
 
 const server = new Server(
@@ -730,13 +771,14 @@ const server = new Server(
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [CHECK_READINESS_TOOL, AGENT_PASSPORT_TOOL],
+  tools: [CHECK_READINESS_TOOL, AGENT_PASSPORT_TOOL, CHECK_METRIC_ACCESS_TOOL],
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const { name, arguments: args } = req.params;
   if (name === 'check_readiness') return handleCheckReadiness(args);
   if (name === 'get_agent_passport') return handleGetAgentPassport(args);
+  if (name === 'check_metric_access') return handleCheckMetricAccess(args);
   return {
     content: [{ type: 'text', text: 'Unknown tool: ' + name }],
     isError: true,

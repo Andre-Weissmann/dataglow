@@ -13802,7 +13802,8 @@ body {
         if (isPlainObj(v) && depth < maxDepth) {
           var nested = flattenObj(v, maxDepth, key, depth + 1);
           Object.keys(nested).forEach(function (nk) { out[nk] = nested[nk]; });
-        } else if (Array.isArray(v)) {
+        } else if (Array.isArray(v) || isPlainObj(v)) {
+          // arrays in leaf position, and objects nested deeper than maxDepth, are stringified
           out[key] = JSON.stringify(v);
         } else {
           out[key] = v == null ? null : v;
@@ -13857,6 +13858,7 @@ body {
     }
 
     function parseJsonOrNdjson(text) {
+      if (typeof text === 'string' && text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // Excel/Windows exports prepend a BOM
       if (typeof text !== 'string' || text.trim() === '') {
         return { parsed: null, isNdjson: false, error: 'Empty input' };
       }
@@ -13898,7 +13900,9 @@ body {
       }
       var trimmed = url.trim();
       var parsed;
-      try { parsed = new URL(trimmed); } catch (e1) {
+      // "localhost:8080/x" parses as a URL whose scheme is the hostname; treat a bare host:port as a host.
+      var bareHostPort = !/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) && /^[A-Za-z0-9.-]+:\d{1,5}(\/|$|\?|#)/.test(trimmed);
+      try { parsed = new URL(bareHostPort ? 'https://' + trimmed : trimmed); } catch (e1) {
         try { parsed = new URL('https://' + trimmed); }
         catch (e2) { return { valid: false, error: 'Invalid URL format', normalized: null }; }
       }
@@ -13932,7 +13936,7 @@ body {
         if (isPlainObj(v) && depth < maxDepth) {
           var nested = flattenObjShallow(v, maxDepth, key, depth + 1);
           Object.keys(nested).forEach(function (nk) { out[nk] = nested[nk]; });
-        } else if (Array.isArray(v)) {
+        } else if (Array.isArray(v) || isPlainObj(v)) {
           out[key] = JSON.stringify(v);
         } else {
           out[key] = v == null ? null : v;
@@ -13990,9 +13994,18 @@ body {
       };
     }
 
+    function unionColumns(rows) {
+      var seen = {}, cols = [];
+      (Array.isArray(rows) ? rows : []).forEach(function (r) {
+        if (!isPlainObj(r)) return;
+        Object.keys(r).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(seen, k)) { seen[k] = true; cols.push(k); } });
+      });
+      return cols;
+    }
+
     function buildFeedDataset(rows, url, pollSchedule, fetchedAt) {
       return {
-        columns: rows.length > 0 ? Object.keys(rows[0]) : [],
+        columns: unionColumns(rows),
         rows: rows,
         meta: {
           source: url,
@@ -36084,6 +36097,22 @@ var InstantInsight = (function () {
       var header = { payerName: '', checkNum: '', checkDate: '', checkAmt: '' };
       var currentClaim = null;
 
+      /* A claim with no SVC/SVP lines (claim-level-only remittance, or a fully
+         denied claim) still gets one row. Previously only the LAST claim of a
+         file with zero service lines was emitted, and claim-level claims
+         followed by a claim WITH service lines were silently dropped. */
+      function flushClaim835() {
+        if (currentClaim && !currentClaim.hasSvc) {
+          rows.push([
+            header.payerName, header.checkNum, header.checkDate, header.checkAmt,
+            currentClaim.claimId, currentClaim.claimStatus,
+            currentClaim.chargeAmt, currentClaim.paidAmt, currentClaim.patientResp,
+            currentClaim.adjCode, currentClaim.adjAmt, '', '', ''
+          ]);
+        }
+        currentClaim = null;
+      }
+
       for (var i = 0; i < segments.length; i++) {
         var seg = segments[i];
         var id  = seg[0];
@@ -36091,10 +36120,11 @@ var InstantInsight = (function () {
         if (id === 'BPR') { header.checkAmt = seg[2] || ''; header.checkDate = seg[16] || ''; }
         if (id === 'TRN') { header.checkNum = seg[2] || ''; }
         if (id === 'CLP') {
+          flushClaim835();
           currentClaim = {
             claimId: seg[1] || '', claimStatus: seg[2] || '',
             chargeAmt: seg[3] || '', paidAmt: seg[4] || '',
-            patientResp: seg[5] || '', adjCode: '', adjAmt: ''
+            patientResp: seg[5] || '', adjCode: '', adjAmt: '', hasSvc: false
           };
         }
         if (id === 'CAS' && currentClaim) {
@@ -36102,6 +36132,7 @@ var InstantInsight = (function () {
           currentClaim.adjAmt  = seg[3] || '';
         }
         if ((id === 'SVC' || id === 'SVP') && currentClaim) {
+          currentClaim.hasSvc = true;
           rows.push([
             header.payerName, header.checkNum, header.checkDate, header.checkAmt,
             currentClaim.claimId, currentClaim.claimStatus,
@@ -36111,14 +36142,7 @@ var InstantInsight = (function () {
           ]);
         }
       }
-      if (rows.length === 0 && currentClaim) {
-        rows.push([
-          header.payerName, header.checkNum, header.checkDate, header.checkAmt,
-          currentClaim.claimId, currentClaim.claimStatus,
-          currentClaim.chargeAmt, currentClaim.paidAmt, currentClaim.patientResp,
-          currentClaim.adjCode, currentClaim.adjAmt, '', '', ''
-        ]);
-      }
+      flushClaim835();
       return {
         columns: [
           { name: 'payer_name',     type: 'STR'   },
@@ -36147,6 +36171,21 @@ var InstantInsight = (function () {
       var payer      = { name: '', payerId: '' };
       var currentClaim = null;
 
+      /* Same fix as 835: a CLM with no SV1/SV2 line still yields one row. */
+      function flushClaim837() {
+        if (currentClaim && !currentClaim.hasSvc) {
+          rows.push([
+            subscriber.lastName + (subscriber.firstName ? ', ' + subscriber.firstName : ''),
+            subscriber.memberId, subscriber.dob, subscriber.gender,
+            provider.npi, provider.name, payer.name, payer.payerId,
+            currentClaim.claimId, currentClaim.totalCharge,
+            currentClaim.serviceDate, currentClaim.diagCode1,
+            '', '', '', '', currentClaim.facilityCode
+          ]);
+        }
+        currentClaim = null;
+      }
+
       for (var i = 0; i < segments.length; i++) {
         var seg = segments[i];
         var id  = seg[0];
@@ -36162,10 +36201,11 @@ var InstantInsight = (function () {
         if (id === 'NM1' && (seg[1] === 'PR' || seg[1] === '40')) { payer.name = seg[3] || ''; payer.payerId = seg[10] || seg[9] || ''; }
         if (id === 'DMG' && seg[1] === 'D8') { subscriber.dob = seg[2] || ''; subscriber.gender = seg[3] || ''; }
         if (id === 'CLM') {
+          flushClaim837();
           currentClaim = {
             claimId: seg[1] || '', totalCharge: seg[2] || '',
             facilityCode: seg[5] ? seg[5].split(':')[0] : '',
-            serviceDate: '', diagCode1: ''
+            serviceDate: '', diagCode1: '', hasSvc: false
           };
         }
         if (id === 'DTP' && seg[1] === '472' && currentClaim) { currentClaim.serviceDate = seg[3] || ''; }
@@ -36174,6 +36214,7 @@ var InstantInsight = (function () {
           currentClaim.diagCode1 = hparts[1] || seg[1];
         }
         if ((id === 'SV1' || id === 'SV2') && currentClaim) {
+          currentClaim.hasSvc = true;
           var svcField = seg[1] || '';
           var svcParts = svcField.split(':');
           var procCode = svcParts[1] || svcField;
@@ -36188,16 +36229,7 @@ var InstantInsight = (function () {
           ]);
         }
       }
-      if (rows.length === 0 && currentClaim) {
-        rows.push([
-          subscriber.lastName + (subscriber.firstName ? ', ' + subscriber.firstName : ''),
-          subscriber.memberId, subscriber.dob, subscriber.gender,
-          provider.npi, provider.name, payer.name, payer.payerId,
-          currentClaim.claimId, currentClaim.totalCharge,
-          currentClaim.serviceDate, currentClaim.diagCode1,
-          '', '', '', '', currentClaim.facilityCode
-        ]);
-      }
+      flushClaim837();
       return {
         columns: [
           { name: 'patient_name',   type: 'STR'   },
@@ -43842,8 +43874,16 @@ function extractColStats(colName, rawType, rows) {
 
   let min = null, max = null, mean = null, stddev = null;
   if (numVals.length > 0) {
-    min = Math.min(...numVals);
-    max = Math.max(...numVals);
+    // Loop instead of Math.min(...numVals)/Math.max(...numVals): spreading a
+    // 100k+ element array throws "RangeError: Maximum call stack size exceeded",
+    // which crashed snapshotting on any real 100 MB-class dataset (caught by the
+    // 2026-11-21 breadth stress pass).
+    min = numVals[0];
+    max = numVals[0];
+    for (let i = 1; i < numVals.length; i++) {
+      if (numVals[i] < min) min = numVals[i];
+      if (numVals[i] > max) max = numVals[i];
+    }
     mean = numVals.reduce((a, b) => a + b, 0) / numVals.length;
     const variance = numVals.reduce((a, b) => a + (b - mean) ** 2, 0) / numVals.length;
     stddev = Math.sqrt(variance);
@@ -43975,7 +44015,11 @@ class DVCStore {
    * @returns {Snapshot[]}
    */
   list(datasetName) {
-    const all = Array.from(this._snapshots.values());
+    // Reverse insertion order BEFORE the (stable) sort so snapshots created in
+    // the same millisecond still come back newest-first. Without this, ties kept
+    // insertion order (oldest first), so list()[0] was NOT the latest snapshot and
+    // snapshotIfChanged() compared against the wrong baseline (2026-11-21 fix).
+    const all = Array.from(this._snapshots.values()).reverse();
     const filtered = datasetName ? all.filter(s => s.datasetName === datasetName) : all;
     return filtered.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
@@ -44106,6 +44150,17 @@ class DVCStore {
   timeline(datasetName) {
     return this.list(datasetName).reverse();
   }
+}
+
+/**
+ * Factory parity with the other governance stores (createRulepackRegistry,
+ * createSemanticRegistry, createMetricAccessRegistry): returns an independent
+ * store, optionally rehydrated from a previously exported JSON blob/object.
+ * @param {string|Object} [initial]
+ * @returns {DVCStore}
+ */
+function createDVCStore(initial) {
+  return initial ? DVCStore.fromJSON(initial) : new DVCStore();
 }
 
 // Singleton for use across DataGlow modules
@@ -59603,7 +59658,9 @@ function reconcileClaims(claimA, claimB, options = {}) {
   // Step 2 — decide by confidence when both provide one and they differ enough.
   if (confA != null && confB != null) {
     const margin = Math.abs(confA - confB);
-    if (margin > tieThreshold) {
+    // Compare with a tiny epsilon: 0.90 vs 0.85 differ by 0.05000000000000004 in
+    // floating point, which is a tie at the 0.05 threshold by any human reading.
+    if (margin - tieThreshold > 1e-9) {
       const aWins = confA > confB;
       const winningClaim = aWins ? claimA : claimB;
       const losingClaim = aWins ? claimB : claimA;
@@ -59927,6 +59984,13 @@ function createApprovalRequest({ reconciliationResult, partyAId, partyBId } = {}
   };
 }
 
+// Own-property check, NOT the `in` operator: `'toString' in approvals` and
+// `'constructor' in approvals` are true via the prototype chain, which let a
+// non-party ("constructor", "toString", ...) approve or even unilaterally reject.
+function isParty(request, partyId) {
+  return typeof partyId === 'string' && Object.prototype.hasOwnProperty.call(request.approvals || {}, partyId);
+}
+
 function bothApproved(request) {
   return request.approvals[request.partyAId] === true && request.approvals[request.partyBId] === true;
 }
@@ -59968,7 +60032,7 @@ function approvalRecordContent(request) {
  */
 async function approve(request, partyId) {
   if (!request || typeof request !== 'object') return { ok: false, error: 'No request given.' };
-  if (!(partyId in request.approvals)) {
+  if (!isParty(request, partyId)) {
     return { ok: false, error: `Unknown party "${partyId}" — not one of this request's two parties.` };
   }
   if (request.status === 'rejected') {
@@ -60006,7 +60070,7 @@ async function approve(request, partyId) {
  */
 function reject(request, partyId, note = '') {
   if (!request || typeof request !== 'object') return { ok: false, error: 'No request given.' };
-  if (!(partyId in request.approvals)) {
+  if (!isParty(request, partyId)) {
     return { ok: false, error: `Unknown party "${partyId}" — not one of this request's two parties.` };
   }
   if (request.status === 'applied') {
@@ -63489,6 +63553,22 @@ function summarizeDiffFromPrevious(prevColumns, prevRows, columns, rows) {
   return { text, rowCountDelta, columnsAdded: colsAdded, columnsRemoved: colsRemoved, rowChanges };
 }
 
+// Honest fallback when the previous snapshot's rows were not stored: only
+// row-count and column-set deltas are knowable; row-level changes are not.
+function summarizeDiffWithoutPreviousRows(previous, columns, rows) {
+  const prevColumns = Array.isArray(previous.columns) ? previous.columns : [];
+  const colsAdded = columns.filter(c => !prevColumns.includes(c));
+  const colsRemoved = prevColumns.filter(c => !columns.includes(c));
+  const prevCount = Number.isFinite(previous.rowCount) ? previous.rowCount : 0;
+  const rowCountDelta = rows.length - prevCount;
+  const bits = [];
+  if (rowCountDelta !== 0) bits.push(`${rowCountDelta > 0 ? '+' : ''}${rowCountDelta} row(s)`);
+  if (colsAdded.length) bits.push(`+${colsAdded.length} column(s)`);
+  if (colsRemoved.length) bits.push(`-${colsRemoved.length} column(s)`);
+  bits.push('row-level changes unavailable (previous snapshot rows were not stored)');
+  return { text: bits.join(', '), rowCountDelta, columnsAdded: colsAdded, columnsRemoved: colsRemoved, rowChanges: null };
+}
+
 // Build a snapshot record. `previous` is the prior snapshot (or null for the
 // first). `now` is injectable for deterministic tests. Rows are embedded only
 // when `embedRows` is true (the storage-budget check decides this upstream).
@@ -63496,7 +63576,13 @@ function buildSnapshot({ datasetName, columns, rows, previous = null, label = nu
   if (!Array.isArray(columns) || !columns.length) throw new Error('buildSnapshot needs a non-empty column list.');
   if (!Array.isArray(rows)) throw new Error('buildSnapshot needs a rows array.');
   const hash = contentHash(columns, rows);
-  const diffSummary = previous
+  // A previous snapshot saved with rowsOmitted (storage budget) has rows:null.
+  // Diffing against `[]` would report every current row as "added" and a bogus
+  // row-count delta, so fall back to the stored rowCount/columns instead.
+  const previousHasRows = !!previous && Array.isArray(previous.rows);
+  const diffSummary = previous && !previousHasRows
+    ? summarizeDiffWithoutPreviousRows(previous, columns, rows)
+    : previous
     ? summarizeDiffFromPrevious(previous.columns, previous.rows || [], columns, rows)
     : { text: 'Initial snapshot — no prior state to compare against.', rowCountDelta: rows.length, columnsAdded: columns.slice(), columnsRemoved: [], rowChanges: null };
 
@@ -64345,6 +64431,16 @@ function computeFreshnessDecay({ dataDate, asOf, packId, freshnessConfig } = {})
       status: 'unknown', multiplier: 1.0, ageDays: null, staleAfterDays,
       expiredAfterDays, decayFloor, decayShape,
       rationale: 'No data date provided -- freshness decay cannot be computed. Assuming fresh (multiplier 1.0).',
+    });
+  }
+
+  if (isNaN(refDate.getTime())) {
+    // An unparseable asOf used to flow through as NaN age -> 'stale' with a NaN
+    // multiplier, which then poisoned the trust score (NaN * score = NaN).
+    return makeFreshnessResult({
+      status: 'unknown', multiplier: 1.0, ageDays: null, staleAfterDays,
+      expiredAfterDays, decayFloor, decayShape,
+      rationale: 'Invalid reference date "' + String(asOf) + '" -- freshness decay cannot be computed. Assuming fresh (multiplier 1.0).',
     });
   }
 
@@ -65878,15 +65974,18 @@ function renderGlowOrb(opts = {}) {
 // invoice from a vendor whose invoices normally run $200–800, even though
 // $12,000 might look fine against the whole column.
 
+// Quote an identifier safely (a column name containing " must not break the query).
+function q(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
+
 async function computeEntityBaselines(table, entityCol, valueCol, engine) {
   const { rows } = await engine.runQuery(
-    `SELECT "${entityCol}" AS entity,
-            AVG("${valueCol}") AS mean,
-            STDDEV_POP("${valueCol}") AS stddev,
-            COUNT("${valueCol}") AS n
+    `SELECT ${q(entityCol)} AS entity,
+            AVG(${q(valueCol)}) AS mean,
+            STDDEV_POP(${q(valueCol)}) AS stddev,
+            COUNT(${q(valueCol)}) AS n
      FROM ${table}
-     WHERE "${valueCol}" IS NOT NULL
-     GROUP BY "${entityCol}"`
+     WHERE ${q(valueCol)} IS NOT NULL
+     GROUP BY ${q(entityCol)}`
   );
   const baselines = {};
   for (const r of rows) {
@@ -65901,9 +66000,9 @@ async function computeEntityBaselines(table, entityCol, valueCol, engine) {
 
 async function flagEntityDeviations(table, entityCol, valueCol, baselines, engine) {
   const { rows } = await engine.runQuery(
-    `SELECT "${entityCol}" AS entity, "${valueCol}" AS value
+    `SELECT ${q(entityCol)} AS entity, ${q(valueCol)} AS value
      FROM ${table}
-     WHERE "${valueCol}" IS NOT NULL`
+     WHERE ${q(valueCol)} IS NOT NULL`
   );
   const flags = [];
   for (const r of rows) {
@@ -66079,6 +66178,10 @@ async function scoreIsolationForest(table, numericCols, engine, options = {}) {
 const NUMERIC_TYPES = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
 const MAX_POINTS = 500; // cap the plotted series for performance
 
+// Quote an identifier safely: a column name containing a double quote must not
+// break out of the identifier (or the query).
+function q(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
+
 function toNumbers(rows, key) {
   const out = [];
   for (const r of rows) {
@@ -66111,8 +66214,13 @@ function computeCpk(values, usl = null, lsl = null) {
   const { mean, sigma } = computeControlLimits(values);
   let inferredSpec = false;
   if (usl == null || lsl == null) {
-    const max = Math.max(...values);
-    const min = Math.min(...values);
+    // Loop, not Math.max(...values): spreading 100k+ numbers throws
+    // "RangeError: Maximum call stack size exceeded" (breadth stress pass 2026-11-21).
+    let max = -Infinity, min = Infinity;
+    for (let i = 0; i < values.length; i++) {
+      if (values[i] > max) max = values[i];
+      if (values[i] < min) min = values[i];
+    }
     if (usl == null) usl = max;
     if (lsl == null) lsl = min;
     inferredSpec = true;
@@ -66128,7 +66236,7 @@ function computeCpk(values, usl = null, lsl = null) {
 // and a count of out-of-control points for a Validate-tab summary + chart.
 async function analyzeColumnSPC(table, col, engine_ = engine) {
   const { rows } = await engine_.runQuery(
-    `SELECT "${col}" AS v FROM ${table} WHERE "${col}" IS NOT NULL LIMIT ${MAX_POINTS}`
+    `SELECT ${q(col)} AS v FROM ${table} WHERE ${q(col)} IS NOT NULL LIMIT ${MAX_POINTS}`
   );
   const values = toNumbers(rows, 'v');
   if (values.length < 2) return null;
@@ -71701,9 +71809,23 @@ const HIPAA_SAFE_HARBOR = [
     namePattern: /(^|_)(id|uuid|guid|identifier|code|token|api_?key|apikey|ref|reference)($|_)/i },
 ];
 
+// Column-name normaliser used ONLY for pattern tests. Real headers arrive as
+// "Patient Name", "Date of Birth", "MemberID", "ZIPCode", "zip-code" - the name
+// patterns below are written against snake_case tokens, so without this a
+// header with spaces/hyphens/camelCase silently slips past every name check.
+function normColName(name) {
+  return String(name == null ? '' : name)
+    .trim()
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[\s\-.\/]+/g, '_')
+    .replace(/_+/g, '_')
+    .toLowerCase();
+}
+
 // A column matches the special "age over 89" clause of category 3.
 function ageOver89(colName, values) {
-  if (!/(^|_)age($|_)/i.test(colName)) return false;
+  if (!/(^|_)age($|_)/i.test(normColName(colName))) return false;
   return nonNull(values).some(v => {
     const num = Number(v);
     return Number.isFinite(num) && num > 89;
@@ -71726,7 +71848,7 @@ function checkSafeHarbor({ columns = [], samples = {} } = {}) {
       const name = c.name;
       const values = samples[name];
       const reasons = [];
-      if (cat.namePattern && cat.namePattern.test(name)) reasons.push(`column name matches ${cat.label.toLowerCase()}`);
+      if (cat.namePattern && cat.namePattern.test(normColName(name))) reasons.push(`column name matches ${cat.label.toLowerCase()}`);
       if (cat.valuePattern) {
         const { count, frac } = valueMatchFraction(values, cat.valuePattern);
         if (count > 0 && frac >= VALUE_THRESHOLD) reasons.push(`sampled values look like ${cat.label.toLowerCase()}`);
@@ -71746,7 +71868,7 @@ function checkSafeHarbor({ columns = [], samples = {} } = {}) {
   const otherCat = HIPAA_SAFE_HARBOR.find(c => c.id === 'other');
   for (const c of cols) {
     if (matchedAnyCategory.has(c.name)) continue;
-    if (otherCat.namePattern.test(c.name)) {
+    if (otherCat.namePattern.test(normColName(c.name))) {
       other.matchedColumns.push({ column: c.name, reason: 'column name looks like a unique identifier/code' });
     }
   }
@@ -71782,7 +71904,7 @@ function scoreReidentificationRisk({ columns = [], samples = {}, rowCount = null
   const cols = Array.isArray(columns) ? columns : [];
   const present = [];
   for (const q of QUASI) {
-    if (cols.some(c => q.pattern.test(c.name)) && !present.includes(q.id)) present.push(q.id);
+    if (cols.some(c => q.pattern.test(normColName(c.name))) && !present.includes(q.id)) present.push(q.id);
   }
 
   let score = Math.min(present.length * 18, 90);
@@ -71952,7 +72074,7 @@ const KANON_SAMPLE_LIMIT = 500; // max rows sampled for the check
 
 // Column name patterns that indicate a quasi-identifier even without a full
 // de-id report. Kept aligned with scoreReidentificationRisk()'s quasi-id list.
-const QUASI_COL_PATTERN = /(zip|postal|city|county|geo|location)|(dob|birth_date|date_of_birth|\bage\b)|(^|\b)(sex|gender)($|\b)|(race|ethnicity|ethnic)/i;
+const QUASI_COL_PATTERN = /(zip|postal|city|county|geo|location)|(dob|birth_date|date_of_birth|(^|_)age($|_))|(^|_)(sex|gender)($|_)|(^|_)(race|ethnicity|ethnic)($|_)/i;
 
 /**
  * Pure k-anonymity check over sampled rows.
@@ -72041,13 +72163,13 @@ async function runKAnonymityCheck(table, cols, engine, deidReport = null) {
     const presentIds = new Set(deidReport.reidentification.present);
     if (presentIds.size > 0) {
       quasiCols = allCols
-        .filter(c => QUASI_COL_PATTERN.test(c.name || ''))
+        .filter(c => QUASI_COL_PATTERN.test(normColName(c.name || '')))
         .map(c => c.name);
     }
   }
   // Always union with column-name heuristic catches (handles case where no report).
   const heuristic = allCols
-    .filter(c => QUASI_COL_PATTERN.test(c.name || ''))
+    .filter(c => QUASI_COL_PATTERN.test(normColName(c.name || '')))
     .map(c => c.name);
   quasiCols = [...new Set([...quasiCols, ...heuristic])];
 
@@ -73691,7 +73813,11 @@ function robustnessVerdict(attackReport, sensitivityReport) {
 // `Net_Revenue` and `net_revenue` are the same metric.
 // ------------------------------------------------------------
 
-const registry = new Map();
+// SESSION-ISOLATION FACTORY (2026-11-21, Roadmap Step 10): the metric Map now
+// lives inside createSemanticRegistry() so concurrent sessions / test callers
+// can each own independent state. The module-level exports below delegate to
+// ONE default registry created at module load, so every existing caller keeps
+// the exact original signatures and shared-singleton behavior. Purely additive.
 
 // Reserved words / function names that must never be treated as a column
 // reference when deriving a metric's required columns from its expression.
@@ -73728,64 +73854,97 @@ function deriveColumnsFromExpression(expression) {
   return out;
 }
 
+// ------------------------------------------------------------
+// Registry factory. Keyed by lowercased metric name so `Net_Revenue` and
+// `net_revenue` are the same metric.
+// ------------------------------------------------------------
+
 /**
- * Register (or overwrite) a human-authored metric definition. This stores
- * EXACTLY what it is given — it never infers or invents a definition. `name`
- * and `expression` are required; everything else is optional provenance.
- *
- * @param {object} def
- * @param {string} def.name          e.g. "net_revenue"
- * @param {string} def.expression    canonical SQL expression, e.g. "SUM(amount) - SUM(refund_amount)"
- * @param {string} [def.description] human-readable meaning
- * @param {string[]} [def.requiredColumns] columns the expression references;
- *   derived from `expression` when omitted
- * @param {string} [def.owner]       who defined it (provenance)
- * @param {number|string} [def.createdAt] when it was defined; defaults to now
- * @returns {object} the normalized, stored definition (a copy)
+ * Create a brand-new, independent metric registry (its own private Map). Two
+ * registries never share registrations, overwrites, clears, or check results.
+ * @returns {{registerMetric:Function,getRegisteredMetrics:Function,getMetric:Function,unregisterMetric:Function,clearMetrics:Function,checkQueryAgainstMetrics:Function}}
  */
-function registerMetric(def) {
-  if (!def || typeof def !== 'object') throw new Error('registerMetric: a definition object is required');
-  const name = String(def.name || '').trim();
-  const expression = String(def.expression || '').trim();
-  if (!name) throw new Error('registerMetric: `name` is required');
-  if (!expression) throw new Error('registerMetric: `expression` is required');
+function createSemanticRegistry() {
+  const metricMap = new Map();
 
-  const requiredColumns = Array.isArray(def.requiredColumns) && def.requiredColumns.length
-    ? def.requiredColumns.map(c => String(c).toLowerCase())
-    : deriveColumnsFromExpression(expression);
+  /**
+   * Register (or overwrite) a human-authored metric definition. This stores
+   * EXACTLY what it is given — it never infers or invents a definition. `name`
+   * and `expression` are required; everything else is optional provenance.
+   *
+   * @param {object} def
+   * @param {string} def.name          e.g. "net_revenue"
+   * @param {string} def.expression    canonical SQL expression, e.g. "SUM(amount) - SUM(refund_amount)"
+   * @param {string} [def.description] human-readable meaning
+   * @param {string[]} [def.requiredColumns] columns the expression references;
+   *   derived from `expression` when omitted
+   * @param {string} [def.owner]       who defined it (provenance)
+   * @param {number|string} [def.createdAt] when it was defined; defaults to now
+   * @returns {object} the normalized, stored definition (a copy)
+   */
+  function registerMetric(def) {
+    if (!def || typeof def !== 'object') throw new Error('registerMetric: a definition object is required');
+    const name = String(def.name || '').trim();
+    const expression = String(def.expression || '').trim();
+    if (!name) throw new Error('registerMetric: `name` is required');
+    if (!expression) throw new Error('registerMetric: `expression` is required');
 
-  const stored = {
-    name,
-    expression,
-    description: def.description ? String(def.description) : '',
-    requiredColumns,
-    owner: def.owner ? String(def.owner) : '',
-    createdAt: def.createdAt != null ? def.createdAt : Date.now(),
-  };
-  registry.set(name.toLowerCase(), stored);
-  return { ...stored };
+    const requiredColumns = Array.isArray(def.requiredColumns) && def.requiredColumns.length
+      ? def.requiredColumns.map(c => String(c).toLowerCase())
+      : deriveColumnsFromExpression(expression);
+
+    const stored = {
+      name,
+      expression,
+      description: def.description ? String(def.description) : '',
+      requiredColumns,
+      owner: def.owner ? String(def.owner) : '',
+      createdAt: def.createdAt != null ? def.createdAt : Date.now(),
+    };
+    metricMap.set(name.toLowerCase(), stored);
+    return { ...stored };
+  }
+
+  /** All registered metric definitions (copies), in insertion order. */
+  function getRegisteredMetrics() {
+    return [...metricMap.values()].map(m => ({ ...m }));
+  }
+
+  /** A single registered metric by name (case-insensitive), or null. */
+  function getMetric(name) {
+    const m = metricMap.get(String(name || '').toLowerCase());
+    return m ? { ...m } : null;
+  }
+
+  /** Remove a metric by name (case-insensitive). Returns true if one was removed. */
+  function unregisterMetric(name) {
+    return metricMap.delete(String(name || '').toLowerCase());
+  }
+
+  /** Clear the whole registry (used by tests / a fresh session). */
+  function clearMetrics() {
+    metricMap.clear();
+  }
+
+  function checkQueryAgainstMetrics(sql, metrics) {
+    return checkQueryAgainstMetricsWith(getRegisteredMetrics, sql, metrics);
+  }
+
+  return { registerMetric, getRegisteredMetrics, getMetric, unregisterMetric, clearMetrics, checkQueryAgainstMetrics };
 }
 
-/** All registered metric definitions (copies), in insertion order. */
-function getRegisteredMetrics() {
-  return [...registry.values()].map(m => ({ ...m }));
-}
+const defaultRegistry = createSemanticRegistry();
 
-/** A single registered metric by name (case-insensitive), or null. */
-function getMetric(name) {
-  const m = registry.get(String(name || '').toLowerCase());
-  return m ? { ...m } : null;
-}
-
-/** Remove a metric by name (case-insensitive). Returns true if one was removed. */
-function unregisterMetric(name) {
-  return registry.delete(String(name || '').toLowerCase());
-}
-
-/** Clear the whole registry (used by tests / a fresh session). */
-function clearMetrics() {
-  registry.clear();
-}
+/** Register (or overwrite) a metric in the default (app-wide) registry. See createSemanticRegistry(). */
+function registerMetric(def) { return defaultRegistry.registerMetric(def); }
+/** All metrics in the default registry (copies), insertion order. */
+function getRegisteredMetrics() { return defaultRegistry.getRegisteredMetrics(); }
+/** A single metric by name (case-insensitive) from the default registry, or null. */
+function getMetric(name) { return defaultRegistry.getMetric(name); }
+/** Remove a metric from the default registry. Returns true if removed. */
+function unregisterMetric(name) { return defaultRegistry.unregisterMetric(name); }
+/** Clear the default registry (tests / fresh session). */
+function clearMetrics() { defaultRegistry.clearMetrics(); }
 
 // ------------------------------------------------------------
 // Comparator.
@@ -73862,16 +74021,16 @@ function collectCommentText(sql) {
  *
  * @param {string} sql
  * @param {Array<object>} [metrics] the registry to check against; defaults to
- *   the module's in-memory registry (getRegisteredMetrics()). Passing an
+ *   the module's in-memory registry (the registry's own getRegisteredMetrics()). Passing an
  *   explicit array keeps this fully unit-testable without module state.
  * @returns {Array<object>} flags, each shaped like an analysis-contract finding:
  *   { kind:'metric_definition_mismatch', severity, metric, expected, found,
  *     missingColumns, message }
  */
-function checkQueryAgainstMetrics(sql, metrics) {
+function checkQueryAgainstMetricsWith(getRegistered, sql, metrics) {
   const flags = [];
   if (typeof sql !== 'string' || !sql.trim()) return flags;
-  const defs = Array.isArray(metrics) ? metrics : getRegisteredMetrics();
+  const defs = Array.isArray(metrics) ? metrics : getRegistered();
   if (!defs.length) return flags;
 
   const byName = new Map();
@@ -73934,6 +74093,11 @@ function checkQueryAgainstMetrics(sql, metrics) {
   }
 
   return flags;
+}
+
+/** Check SQL against metrics (defaults to the default registry). See createSemanticRegistry(). */
+function checkQueryAgainstMetrics(sql, metrics) {
+  return defaultRegistry.checkQueryAgainstMetrics(sql, metrics);
 }
 
 // ============================================================
@@ -81249,6 +81413,11 @@ if (typeof checkNarrativeOverconfidence !== "undefined") {
 //      it. Any column whose NAME matches (race / ethnicity / insurance / payer /
 //      gender / sex / religion / marital) has its VALUES redacted from the prompt.
 //
+//      Direct-identifier names (ssn, mrn, dob, patient/first/last name, phone,
+//      email, street address) are ALSO treated as sensitive by column name:
+//      those values have no detectable shape, so the value scan below could
+//      never catch "Jane Doe" or "1950-02-03" on its own.
+//
 //   2. A minimal, always-on value-pattern scan for the shapes that are sensitive
 //      no matter what the column is called and no matter whether a domain pack is
 //      active — SSN-shaped and MRN-shaped strings, plus emails and long digit
@@ -81268,8 +81437,8 @@ if (typeof checkNarrativeOverconfidence !== "undefined") {
 // SHAPES, not a domain pack: they fire even when no pack is active. Order
 // matters only for the label attached to a match; redaction is idempotent.
 const DEFAULT_SENSITIVE_PATTERNS = Object.freeze([
-  // US Social Security number: 3-2-4 digits with - or space separators.
-  { id: 'ssn', label: 'SSN', re: /\b\d{3}[-\s]\d{2}[-\s]\d{4}\b/g },
+  // US Social Security number: 3-2-4 digits with -, . or space separators.
+  { id: 'ssn', label: 'SSN', re: /\b\d{3}[-\s.]\d{2}[-\s.]\d{4}\b/g },
   // Medical record number: an "MRN"/"medical record" label followed by digits.
   { id: 'mrn', label: 'MRN', re: /\b(?:mrn|medical\s+record(?:\s+(?:no|number|#))?)\s*[:#]?\s*[A-Z]?\d{5,}\b/gi },
   // Email address.
@@ -81289,9 +81458,21 @@ const REDACTION = (label) => `[REDACTED:${label}]`;
  * @param {string[]} columns
  * @returns {string[]} the subset that is sensitive
  */
+// Direct-identifier column names (HIPAA Safe Harbor items a value-shape scan
+// cannot see: a patient name, a date of birth, a phone number and a street
+// address have no recognisable SHAPE). Matched on a normalised header so
+// "Patient Name", "patientName", "date-of-birth" and "patient_name" all hit.
+const DIRECT_IDENTIFIER_COLUMN = /(^|_)(ssn|social_security(_number)?|mrn|medical_record(_number)?|dob|birth_date|date_of_birth|birthdate|(patient|member|subscriber|person|first|last|middle|full|given|family|maiden)_name|name_(first|last|full)|phone(_number)?|telephone|mobile|cell(_phone)?|fax|email(_address)?|e_mail|(street|home|mailing|billing)_address|address(_line)?_?[12]?)($|_)/i;
+
+function normHeader(name) {
+  return String(name == null ? '' : name).trim()
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[\s\-./]+/g, '_').replace(/_+/g, '_').toLowerCase();
+}
+
 function classifySensitiveColumns(columns) {
   if (!Array.isArray(columns)) return [];
-  return columns.filter((c) => isSensitiveCategory(c));
+  return columns.filter((c) => isSensitiveCategory(c) || DIRECT_IDENTIFIER_COLUMN.test(normHeader(c)));
 }
 
 /**
@@ -89458,6 +89639,13 @@ function gradeCoding(rows, colmap, total) {
     applicable: true, checked, missing, notes, flaggedIndices, examples }, total);
 }
 
+// Duplicate-key normaliser: payers and clearinghouses re-send the same claim
+// with trailing spaces and different letter case ("m001 " vs "M001"). Comparing
+// raw strings missed those, which are exactly the duplicates that get paid twice.
+function dupKeyPart(v) {
+  return String(v == null ? '' : v).trim().toUpperCase();
+}
+
 function gradeDuplicates(rows, colmap, total, toleranceDays) {
   const notes = [];
   if (!colmap.memberId || !colmap.cpt) {
@@ -89480,7 +89668,7 @@ function gradeDuplicates(rows, colmap, total, toleranceDays) {
   const groups = new Map();
   rows.forEach((row, i) => {
     if (isBlank(row[colmap.memberId]) || isBlank(row[colmap.cpt])) return;
-    const key = [row[colmap.memberId], hasDos ? row[colmap.dos] : '', row[colmap.cpt]].join('');
+    const key = [dupKeyPart(row[colmap.memberId]), hasDos ? dupKeyPart(row[colmap.dos]) : '', dupKeyPart(row[colmap.cpt])].join('');
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(i);
   });
@@ -89500,7 +89688,7 @@ function gradeDuplicates(rows, colmap, total, toleranceDays) {
     const byMemberCpt = new Map();
     rows.forEach((row, i) => {
       if (isBlank(row[colmap.memberId]) || isBlank(row[colmap.cpt]) || isBlank(row[colmap.dos])) return;
-      const key = row[colmap.memberId] + '' + row[colmap.cpt];
+      const key = dupKeyPart(row[colmap.memberId]) + '' + dupKeyPart(row[colmap.cpt]);
       if (!byMemberCpt.has(key)) byMemberCpt.set(key, []);
       byMemberCpt.get(key).push(i);
     });
@@ -111088,6 +111276,16 @@ function buildUnpivotSQL(config, sourceRelation) {
   } else {
     sql = unpivotExpr;
   }
+  if (!config.dropNullValues) {
+    // DuckDB's UNPIVOT statement silently omits NULL cells, but the in-app
+    // transform (the primary apply path) keeps them as NULL-valued rows unless
+    // dropNullValues is set. Say so, rather than let the two row counts disagree
+    // without explanation.
+    sql = '-- Note: DuckDB UNPIVOT omits NULL cells. The preview keeps them as NULL rows\n'
+      + '-- (one row per input row per unpivoted column), so this query returns fewer\n'
+      + '-- rows by exactly the number of blank cells. Set "drop blanks" to make them match.\n'
+      + sql;
+  }
   return { ok: true, sql: sql, errors: (v.errors || []) };
 }
 
@@ -111958,11 +112156,16 @@ function parseLibrary(json) {
   var raw = Array.isArray(o) ? o : (Array.isArray(o.records) ? o.records : null);
   if (!raw) return { ok: false, error: 'Library has no records array.' };
   var records = [];
+  // Records that fail validation (including any that carry row data - a privacy
+  // violation) are not imported, but they are no longer dropped silently: the
+  // caller gets the index and reasons so an import can say "2 of 5 skipped".
+  var rejected = [];
   for (var i = 0; i < raw.length; i++) {
     var v = validateRecord(raw[i]);
     if (v.ok) records.push(raw[i]);
+    else rejected.push({ index: i, errors: v.errors });
   }
-  return { ok: true, records: records };
+  return { ok: true, records: records, rejected: rejected };
 }
 
 // ---- match scoring ----------------------------------------------------------
@@ -121697,7 +121900,7 @@ function asOfLookupTransform(factDataset, refDataset, config) {
   if (beforeFirst > 0) {
     notes.push(beforeFirst + ' row' + (beforeFirst === 1 ? '' : 's') + ' are dated before the '
       + 'earliest matching row in the lookup table'
-      + (earliestUnmatched === null ? '' : ' (the earliest is ' + formatISODate(new Date(earliestUnmatched)) + ')')
+      + (earliestUnmatched === null ? '' : ' (the earliest of those rows is dated ' + formatISODate(new Date(earliestUnmatched)) + ')')
       + ', so those values are blank. They were not filled in with the oldest value on record, '
       + 'because that value was not in force then.');
   }
@@ -123503,6 +123706,18 @@ function buildExpandDateRangeSQL(config, sourceRelation) {
       + (inclusive ? '1' : '0') + ' AS ' + quoteIdent(dayColumnName(config) + '_span')
     : '';
 
+  // Rows that cannot expand (no start, no usable end, or an end before the
+  // start) are removed BEFORE the lateral generate_series. Relying on the
+  // function to return nothing for them is not safe: with DuckDB 1.5.x a batch
+  // that mixes NULL / reversed bounds with valid ones silently drops other
+  // valid rows (an open-ended range vanished in the answer-key test).
+  const innerEnd = asAt
+    ? 'COALESCE(' + e + ', CAST(' + quoteLiteral(formatISODate(asAt)) + ' AS DATE))'
+    : e;
+  const innerUpper = inclusive ? innerEnd : '(' + innerEnd + ' - INTERVAL 1 DAY)';
+  const guard = 'WHERE ' + s + ' IS NOT NULL AND ' + innerEnd + ' IS NOT NULL AND CAST(' + innerUpper
+    + ' AS DATE) >= CAST(' + s + ' AS DATE)';
+
   const lines = [
     '-- One row per calendar day between ' + s + ' and ' + e + '.',
     '-- Every other column is repeated on each day, so any total already computed',
@@ -123513,7 +123728,7 @@ function buildExpandDateRangeSQL(config, sourceRelation) {
     'SELECT',
     '  src.*,',
     '  CAST(d.' + day + ' AS DATE) AS ' + day + idxCol + spanCol,
-    'FROM ' + t + ' AS src',
+    'FROM (SELECT * FROM ' + t + ' ' + guard + ') AS src',
     'CROSS JOIN LATERAL generate_series(',
     '  CAST(src.' + s + ' AS DATE),',
     '  CAST(' + upper + ' AS DATE),',
@@ -123527,12 +123742,12 @@ function buildExpandDateRangeSQL(config, sourceRelation) {
     lines.push('-- rather than current_date so this query gives the same answer next month.');
   } else {
     lines.push('');
-    lines.push('-- Rows with no end date produce nothing here, because generate_series with a');
-    lines.push('-- NULL bound returns no rows. They are counted and named in the notes rather');
-    lines.push('-- than being run to today, which would change the answer on every rerun.');
+    lines.push('-- Rows with no end date are filtered out by the WHERE above, not run to today,');
+    lines.push('-- which would change the answer on every rerun. They are counted and named in');
+    lines.push('-- the notes.');
   }
-  lines.push('-- A range whose end is before its start also produces nothing, which is the');
-  lines.push('-- same refusal the computed result makes.');
+  lines.push('-- A range whose end is before its start is filtered out the same way, which is');
+  lines.push('-- the same refusal the computed result makes.');
 
   return { ok: true, sql: lines.join('\n') };
 }
@@ -126842,7 +127057,10 @@ function buildMovingAverageSQL(config, sourceRelation) {
     if (!blank) return avg;
     // The blank until full rule, written as SQL rather than described: an average
     // over fewer rows than asked for is not the average that was asked for.
-    return 'CASE WHEN COUNT(' + val + ') ' + over + ' = ' + size
+    // COUNT(*) (rows), not COUNT(value): the computed result decides "full" by row
+    // position, and a null inside the window must shorten the average (shown in
+    // rows_in_window), not blank it - otherwise this SQL and the preview disagree.
+    return 'CASE WHEN COUNT(*) ' + over + ' = ' + size
       + ' THEN ' + avg + ' END';
   }
 
@@ -126854,7 +127072,7 @@ function buildMovingAverageSQL(config, sourceRelation) {
     '-- labelled ' + w + '. Fill the calendar first if that matters.',
   ];
   if (blank) {
-    lines.push('-- The CASE leaves a row blank until ' + w + ' values exist. An average of the');
+    lines.push('-- The CASE leaves a row blank until ' + w + ' rows exist. An average of the');
     lines.push('-- first three rows is not a ' + w + ' row average, and printing it as one makes');
     lines.push('-- the start of the series look smoother than it was.');
   } else {

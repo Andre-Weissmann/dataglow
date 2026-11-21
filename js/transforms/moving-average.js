@@ -200,7 +200,10 @@ export function buildMovingAverageSQL(config, sourceRelation) {
     if (!blank) return avg;
     // The blank until full rule, written as SQL rather than described: an average
     // over fewer rows than asked for is not the average that was asked for.
-    return 'CASE WHEN COUNT(' + val + ') ' + over + ' = ' + size
+    // COUNT(*) (rows), not COUNT(value): the computed result decides "full" by row
+    // position, and a null inside the window must shorten the average (shown in
+    // rows_in_window), not blank it - otherwise this SQL and the preview disagree.
+    return 'CASE WHEN COUNT(*) ' + over + ' = ' + size
       + ' THEN ' + avg + ' END';
   }
 
@@ -212,7 +215,7 @@ export function buildMovingAverageSQL(config, sourceRelation) {
     '-- labelled ' + w + '. Fill the calendar first if that matters.',
   ];
   if (blank) {
-    lines.push('-- The CASE leaves a row blank until ' + w + ' values exist. An average of the');
+    lines.push('-- The CASE leaves a row blank until ' + w + ' rows exist. An average of the');
     lines.push('-- first three rows is not a ' + w + ' row average, and printing it as one makes');
     lines.push('-- the start of the series look smoother than it was.');
   } else {

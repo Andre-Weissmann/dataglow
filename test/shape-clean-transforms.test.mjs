@@ -700,8 +700,8 @@ ok('A26 SQL builds', a26sql.ok === true);
 ok('A26 SQL uses generate_series', a26sql.sql.includes('generate_series'));
 ok('A26 SQL steps by one day', a26sql.sql.includes('INTERVAL 1 DAY'));
 ok('A26 SQL states the end convention', a26sql.sql.includes('is included'));
-ok('A26 SQL says a NULL end produces nothing',
-  a26sql.sql.includes('NULL bound returns no rows'));
+ok('A26 SQL says a NULL end is filtered out, not run to today',
+  a26sql.sql.includes('filtered out by the WHERE'));
 ok('A26 SQL writes the as-at date as a literal, not current_date',
   buildExpandDateRangeSQL(Object.assign({}, rangeCfg, { openEnd: 'asAt', asAtDate: '2024-01-12' }),
     'stays').sql.includes('2024-01-12'));

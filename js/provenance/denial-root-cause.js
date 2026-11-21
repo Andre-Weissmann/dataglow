@@ -203,6 +203,13 @@ function gradeCoding(rows, colmap, total) {
     applicable: true, checked, missing, notes, flaggedIndices, examples }, total);
 }
 
+// Duplicate-key normaliser: payers and clearinghouses re-send the same claim
+// with trailing spaces and different letter case ("m001 " vs "M001"). Comparing
+// raw strings missed those, which are exactly the duplicates that get paid twice.
+function dupKeyPart(v) {
+  return String(v == null ? '' : v).trim().toUpperCase();
+}
+
 function gradeDuplicates(rows, colmap, total, toleranceDays) {
   const notes = [];
   if (!colmap.memberId || !colmap.cpt) {
@@ -225,7 +232,7 @@ function gradeDuplicates(rows, colmap, total, toleranceDays) {
   const groups = new Map();
   rows.forEach((row, i) => {
     if (isBlank(row[colmap.memberId]) || isBlank(row[colmap.cpt])) return;
-    const key = [row[colmap.memberId], hasDos ? row[colmap.dos] : '', row[colmap.cpt]].join('');
+    const key = [dupKeyPart(row[colmap.memberId]), hasDos ? dupKeyPart(row[colmap.dos]) : '', dupKeyPart(row[colmap.cpt])].join('');
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(i);
   });
@@ -245,7 +252,7 @@ function gradeDuplicates(rows, colmap, total, toleranceDays) {
     const byMemberCpt = new Map();
     rows.forEach((row, i) => {
       if (isBlank(row[colmap.memberId]) || isBlank(row[colmap.cpt]) || isBlank(row[colmap.dos])) return;
-      const key = row[colmap.memberId] + '' + row[colmap.cpt];
+      const key = dupKeyPart(row[colmap.memberId]) + '' + dupKeyPart(row[colmap.cpt]);
       if (!byMemberCpt.has(key)) byMemberCpt.set(key, []);
       byMemberCpt.get(key).push(i);
     });

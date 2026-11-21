@@ -294,7 +294,7 @@ export function asOfLookupTransform(factDataset, refDataset, config) {
   if (beforeFirst > 0) {
     notes.push(beforeFirst + ' row' + (beforeFirst === 1 ? '' : 's') + ' are dated before the '
       + 'earliest matching row in the lookup table'
-      + (earliestUnmatched === null ? '' : ' (the earliest is ' + formatISODate(new Date(earliestUnmatched)) + ')')
+      + (earliestUnmatched === null ? '' : ' (the earliest of those rows is dated ' + formatISODate(new Date(earliestUnmatched)) + ')')
       + ', so those values are blank. They were not filled in with the oldest value on record, '
       + 'because that value was not in force then.');
   }

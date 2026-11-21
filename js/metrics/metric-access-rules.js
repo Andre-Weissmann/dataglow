@@ -102,8 +102,12 @@ export class MetricAccessRule {
 
   static fromJSON(payload) {
     if (!payload || payload.metricId == null) return null;
+    // Fail CLOSED on a corrupt saved rule. The constructor defaults a missing
+    // allowedAgents to [ANY_AGENT] (the deliberate "no rule configured" default),
+    // but a rule that WAS saved and came back with allowedAgents missing, null or
+    // a bare string ("finance") must not silently become "anyone may read".
     return new MetricAccessRule(payload.metricId, {
-      allowedAgents: payload.allowedAgents,
+      allowedAgents: Array.isArray(payload.allowedAgents) ? payload.allowedAgents : [],
       reason: payload.reason,
       setBy: payload.setBy,
       setAt: payload.setAt,
@@ -174,4 +178,128 @@ export class MetricAccessRuleRegistry {
     }
     return reg;
   }
+}
+
+// ============================================================
+// Roadmap Step 10b (2026-11-21): wiring helpers for real callers
+// ============================================================
+// The classes above shipped as pure logic with zero callers. These additive
+// exports give query-time and MCP callers a single, pure entry point each,
+// WITHOUT changing any existing class. Enforcement of what a caller does with a
+// `allowed: false` verdict is the caller's decision, and the whole path ships
+// dark behind the `metricAccessEnforcement` flag (default false).
+
+/** Factory parity with the other governance stores (createRulepackRegistry, createSemanticRegistry). */
+export function createMetricAccessRegistry() {
+  return new MetricAccessRuleRegistry();
+}
+
+// Remove -- line comments, /* */ block comments and 'single quoted' string
+// literals so a metric name that only appears in a comment or a text literal is
+// not mistaken for a READ of that metric. Double-quoted identifiers are kept.
+function stripCommentsAndLiterals(sql) {
+  return String(sql || '')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\n]*/g, ' ')
+    .replace(/'(?:[^']|'')*'/g, "''");
+}
+
+function squash(expr) {
+  return String(expr || '')
+    .replace(/\b[A-Za-z_][A-Za-z0-9_]*\.(?=[A-Za-z_])/g, '')
+    .replace(/["'`]/g, '')
+    .replace(/\s+/g, '')
+    .toLowerCase();
+}
+
+function escapeRe(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Pure read-gate evaluator: which governed metrics does this SQL (or explicit
+ * metric request) read, and is `agentId` authorized for every one of them?
+ *
+ * A semantic metric counts as referenced when, outside comments and string
+ * literals, the SQL (a) mentions its name as a whole identifier (alias, column,
+ * or quoted identifier, case-insensitive) or (b) contains its canonical
+ * expression (normalized: lowercase, no whitespace, no table qualifiers).
+ * Explicit `metricIds` are always checked. A metric with no configured rule is
+ * open by default (the registry's documented default).
+ *
+ * @param {string} sql
+ * @param {string} agentId
+ * @param {{metricIds?: string[], semanticMetrics?: Array<{id?:string,name:string,expression?:string}>, accessRegistry?: MetricAccessRuleRegistry}} [opts]
+ * @returns {{allowed:boolean, blockedMetrics:string[], checkedMetrics:string[], reason:string|null}}
+ */
+export function evaluateSqlMetricAccess(sql, agentId, opts = {}) {
+  const { metricIds = [], semanticMetrics = [], accessRegistry } = opts || {};
+  const checked = [];
+  const add = (id) => { if (id != null && id !== '' && !checked.includes(String(id))) checked.push(String(id)); };
+
+  for (const id of Array.isArray(metricIds) ? metricIds : []) add(id);
+
+  const cleaned = stripCommentsAndLiterals(typeof sql === 'string' ? sql : '');
+  const squashedSql = squash(cleaned);
+  for (const m of Array.isArray(semanticMetrics) ? semanticMetrics : []) {
+    if (!m || !m.name) continue;
+    const name = String(m.name);
+    const nameRe = new RegExp(`(^|[^A-Za-z0-9_])"?${escapeRe(name)}"?(?![A-Za-z0-9_])`, 'i');
+    const byName = nameRe.test(cleaned);
+    const expr = squash(m.expression);
+    const byExpr = expr.length > 0 && squashedSql.includes(expr);
+    if (byName || byExpr) add(m.id != null ? m.id : name);
+  }
+
+  if (!accessRegistry || typeof accessRegistry.isAuthorized !== 'function') {
+    return {
+      allowed: true,
+      blockedMetrics: [],
+      checkedMetrics: checked,
+      reason: checked.length ? 'No access registry supplied; metrics default to open access.' : null,
+    };
+  }
+
+  const blocked = checked.filter((id) => !accessRegistry.isAuthorized(id, agentId));
+  return {
+    allowed: blocked.length === 0,
+    blockedMetrics: blocked,
+    checkedMetrics: checked,
+    reason: blocked.length
+      ? `Agent "${agentId}" is not authorized to read governed metric${blocked.length > 1 ? 's' : ''}: ${blocked.join(', ')}.`
+      : null,
+  };
+}
+
+/**
+ * MCP/gate-state adapter: evaluate `check_metric_access` against an exported
+ * gate-state object. Pure (no I/O). Enforcement is OFF unless the exported state
+ * says `metricAccessEnforcement === true`; with no rules exported the metric is
+ * open by default. Never throws on malformed state.
+ *
+ * @param {object|null} state parsed dataglow-gate-state.json
+ * @param {string} metricId
+ * @param {string} agentId
+ * @returns {{allowed:boolean, enforced:boolean, ruleConfigured:boolean, metricId:string, agentId:string, reason:string|null}}
+ */
+export function checkMetricAccessFromGateState(state, metricId, agentId) {
+  const base = { metricId: String(metricId ?? ''), agentId: String(agentId ?? '') };
+  if (!state || typeof state !== 'object') {
+    return { ...base, allowed: true, enforced: false, ruleConfigured: false, reason: 'No gate state exported; metric access is not enforced.' };
+  }
+  if (state.metricAccessEnforcement !== true) {
+    return { ...base, allowed: true, enforced: false, ruleConfigured: false, reason: 'metricAccessEnforcement is not enabled in the exported gate state.' };
+  }
+  const registry = MetricAccessRuleRegistry.fromJSON(state.metricAccessRules);
+  const ruleConfigured = registry.has(base.metricId);
+  const allowed = registry.isAuthorized(base.metricId, base.agentId);
+  return {
+    ...base,
+    allowed,
+    enforced: true,
+    ruleConfigured,
+    reason: allowed
+      ? (ruleConfigured ? null : 'No access rule configured for this metric; default is open access.')
+      : `Agent "${base.agentId}" is not authorized to read metric "${base.metricId}".`,
+  };
 }

@@ -12,6 +12,10 @@ import * as engine from '../app-shell/duckdb-engine.js';
 const NUMERIC_TYPES = ['DOUBLE', 'BIGINT', 'INTEGER', 'HUGEINT', 'FLOAT'];
 const MAX_POINTS = 500; // cap the plotted series for performance
 
+// Quote an identifier safely: a column name containing a double quote must not
+// break out of the identifier (or the query).
+function q(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
+
 function toNumbers(rows, key) {
   const out = [];
   for (const r of rows) {
@@ -44,8 +48,13 @@ export function computeCpk(values, usl = null, lsl = null) {
   const { mean, sigma } = computeControlLimits(values);
   let inferredSpec = false;
   if (usl == null || lsl == null) {
-    const max = Math.max(...values);
-    const min = Math.min(...values);
+    // Loop, not Math.max(...values): spreading 100k+ numbers throws
+    // "RangeError: Maximum call stack size exceeded" (breadth stress pass 2026-11-21).
+    let max = -Infinity, min = Infinity;
+    for (let i = 0; i < values.length; i++) {
+      if (values[i] > max) max = values[i];
+      if (values[i] < min) min = values[i];
+    }
     if (usl == null) usl = max;
     if (lsl == null) lsl = min;
     inferredSpec = true;
@@ -61,7 +70,7 @@ export function computeCpk(values, usl = null, lsl = null) {
 // and a count of out-of-control points for a Validate-tab summary + chart.
 export async function analyzeColumnSPC(table, col, engine_ = engine) {
   const { rows } = await engine_.runQuery(
-    `SELECT "${col}" AS v FROM ${table} WHERE "${col}" IS NOT NULL LIMIT ${MAX_POINTS}`
+    `SELECT ${q(col)} AS v FROM ${table} WHERE ${q(col)} IS NOT NULL LIMIT ${MAX_POINTS}`
   );
   const values = toNumbers(rows, 'v');
   if (values.length < 2) return null;

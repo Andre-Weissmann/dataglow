@@ -33,7 +33,7 @@
     "verification": {
       "testsRun": 0,
       "testsPassed": 0,
-      "notTouched": "No application source code touched this run \u2014 dev-log/checkpoints.json is a new empty-array data file, and the other two merges (#191, #222) were docs-only additions to docs/tech-debt-tracker.md. No JS modules, no flags.manifest.json, no UI."
+      "notTouched": "No application source code touched this run — dev-log/checkpoints.json is a new empty-array data file, and the other two merges (#191, #222) were docs-only additions to docs/tech-debt-tracker.md. No JS modules, no flags.manifest.json, no UI."
     },
     "outcome": "shipped-dark"
   },
@@ -42,7 +42,7 @@
     "startedAt": "2026-07-15T02:30:00Z",
     "endedAt": "2026-07-15T14:30:00Z",
     "trigger": "run-end",
-    "title": "Guarded Copilot Batch 2 \u2014 chat panel UI + Tier 2 on-device model wiring",
+    "title": "Guarded Copilot Batch 2 — chat panel UI + Tier 2 on-device model wiring",
     "before": {
       "openPRs": 1,
       "openIssues": 29,
@@ -70,7 +70,7 @@
     "verification": {
       "testsRun": 64,
       "testsPassed": 64,
-      "notTouched": "No write-path/DB-mutation code touched \u2014 refineWithOnDeviceModel() only calls loadModel() after confirming isModelLoaded() is true, and loadModel() is memoized so it can never trigger a new model download; all 54 CI checks green, independently re-verified line-by-line for zero write-path imports."
+      "notTouched": "No write-path/DB-mutation code touched — refineWithOnDeviceModel() only calls loadModel() after confirming isModelLoaded() is true, and loadModel() is memoized so it can never trigger a new model download; all 54 CI checks green, independently re-verified line-by-line for zero write-path imports."
     },
     "outcome": "shipped-dark"
   },
@@ -117,7 +117,7 @@
     "startedAt": "2026-07-15T21:05:00Z",
     "endedAt": "2026-07-16T02:03:00Z",
     "trigger": "run-end",
-    "title": "Built Zero-Knowledge Threshold Proof (Batch 1) \u2014 first genuine ZK primitive in DataGlow, shipped dark",
+    "title": "Built Zero-Knowledge Threshold Proof (Batch 1) — first genuine ZK primitive in DataGlow, shipped dark",
     "before": {
       "openPRs": 0,
       "openIssues": 29,
@@ -145,7 +145,7 @@
     "verification": {
       "testsRun": 31,
       "testsPassed": 31,
-      "notTouched": "No existing js/provenance/ module, no existing flag, and no existing enabled:true UI path was modified \u2014 this batch only adds a new file, a new flag (default false), and a new additive call site."
+      "notTouched": "No existing js/provenance/ module, no existing flag, and no existing enabled:true UI path was modified — this batch only adds a new file, a new flag (default false), and a new additive call site."
     },
     "outcome": "shipped-dark"
   },
@@ -154,7 +154,7 @@
     "startedAt": "2026-07-16T21:09:00Z",
     "endedAt": "2026-07-17T10:11:00Z",
     "trigger": "run-end",
-    "title": "Merged Drill Floor Batch 2 (cross-language diff engine) and Cleaning Crew Batch 1 (PDF profiler) \u2014 both shipped dark; recovered from a subagent/sandbox collision mid-run",
+    "title": "Merged Drill Floor Batch 2 (cross-language diff engine) and Cleaning Crew Batch 1 (PDF profiler) — both shipped dark; recovered from a subagent/sandbox collision mid-run",
     "before": {
       "openPRs": 0,
       "openIssues": 29,
@@ -191,7 +191,7 @@
     "startedAt": "2026-07-17T00:00:00Z",
     "endedAt": "2026-07-19T08:16:00Z",
     "trigger": "run-end",
-    "title": "Fix #2: referential-integrity discoverability hint \u2014 merged live (info-only, rides existing enabled flag, no new flag)",
+    "title": "Fix #2: referential-integrity discoverability hint — merged live (info-only, rides existing enabled flag, no new flag)",
     "before": {
       "openPRs": 1,
       "openIssues": 0,
@@ -218,7 +218,7 @@
     "verification": {
       "testsRun": 13,
       "testsPassed": 13,
-      "notTouched": "Purely additive info-severity finding riding the existing crossTableReferentialIntegrity flag (already enabled) \u2014 never changes pass/warn/fail status, no new flag introduced. Independently re-read the full diff before merge, not just trusted green CI."
+      "notTouched": "Purely additive info-severity finding riding the existing crossTableReferentialIntegrity flag (already enabled) — never changes pass/warn/fail status, no new flag introduced. Independently re-read the full diff before merge, not just trusted green CI."
     },
     "outcome": "shipped-live"
   },
@@ -227,7 +227,7 @@
     "startedAt": "2026-07-19T08:16:00Z",
     "endedAt": "2026-07-19T08:55:00Z",
     "trigger": "run-end",
-    "title": "Fix #6 (NCCI same-day procedure conflict), Fix #7 (mobile 44px touch targets), analytics-positioning doc note \u2014 all merged, no new flags",
+    "title": "Fix #6 (NCCI same-day procedure conflict), Fix #7 (mobile 44px touch targets), analytics-positioning doc note — all merged, no new flags",
     "before": {
       "openPRs": 3,
       "openIssues": 0,
@@ -265,7 +265,7 @@
     "startedAt": "2026-07-19T08:56:00Z",
     "endedAt": "2026-07-19T09:45:00Z",
     "trigger": "run-end",
-    "title": "Pivot Table Batch 1 (Excel-style pivot builder) merged dark \u2014 new pivotTable flag, defaults false",
+    "title": "Pivot Table Batch 1 (Excel-style pivot builder) merged dark — new pivotTable flag, defaults false",
     "before": {
       "openPRs": 0,
       "openIssues": 0,
@@ -292,7 +292,46 @@
     "verification": {
       "testsRun": 179,
       "testsPassed": 179,
-      "notTouched": "Additive-only, follows the same dark-flag-tab pattern as Glow Canvas: new pivot tab id, new table icon, one flag-gate line in getVisibleTabIds(), one switchTab hook, one new panel section. New pivotTable flag defaults false \u2014 tab never appears in the bar, never a dead click target, panel stays empty. Only non-dark change is a pure correctness fix in utils.js's el() (falsy/boolean attrs no longer produce broken attr=\"false\" output), verified via full suite still passing. Playwright QA (21/21) run with flag temporarily true LOCALLY ONLY, reverted to false before commit and re-confirmed on main post-merge. tauri-smoke and all 59 CI jobs green; merge-tree pre-check CLEAN."
+      "notTouched": "Additive-only, follows the same dark-flag-tab pattern as Glow Canvas: new pivot tab id, new table icon, one flag-gate line in getVisibleTabIds(), one switchTab hook, one new panel section. New pivotTable flag defaults false — tab never appears in the bar, never a dead click target, panel stays empty. Only non-dark change is a pure correctness fix in utils.js's el() (falsy/boolean attrs no longer produce broken attr=\"false\" output), verified via full suite still passing. Playwright QA (21/21) run with flag temporarily true LOCALLY ONLY, reverted to false before commit and re-confirmed on main post-merge. tauri-smoke and all 59 CI jobs green; merge-tree pre-check CLEAN."
+    },
+    "outcome": "shipped-dark"
+  },
+  {
+    "id": "chk_20261121_1",
+    "startedAt": "2026-11-21T17:45:00Z",
+    "endedAt": "2026-11-21T18:30:00Z",
+    "trigger": "run-end",
+    "title": "Roadmap Wave Steps 2, 5, 6, 7, 8, 9, 10 — Tauri flags fix, Drill Floor injector split (#654), multi-tab OPFS + mobile scale proof, Glow Canvas refresh & storytelling, Python/R write-back, session-isolated semantic layer, MCP metric access gate, and 49-module breadth stress proof (all new flags dark)",
+    "before": {
+      "openPRs": 0,
+      "openIssues": 23,
+      "orphanBranches": 4,
+      "darkFlags": 4,
+      "ciStatus": "success"
+    },
+    "after": {
+      "openPRs": 0,
+      "openIssues": 22,
+      "orphanBranches": 4,
+      "darkFlags": 8,
+      "ciStatus": "success"
+    },
+    "diffstat": {
+      "filesChanged": 63,
+      "additions": 5950,
+      "deletions": 730
+    },
+    "commits": [
+      "05bd1c6",
+      "d202b00",
+      "7d97008",
+      "d8d019b"
+    ],
+    "prUrl": "https://github.com/Andre-Weissmann/dataglow/pull/713",
+    "verification": {
+      "testsRun": 598,
+      "testsPassed": 598,
+      "notTouched": "Zero existing enabled flags flipped; all four new feature flags (glowCanvasLiveRefresh, glowCanvasStorytelling, polyglotWriteback, metricAccessEnforcement) and both scale flags (streamingIngestion, opfsPersistence) plus videoTranscription remain false in flags.manifest.json pending explicit One Confirm approval and physical GPU hardware testing for Steps 3-4. All five PRs (#709-#713) independently diff-reviewed, capability-map/AGENTS/canvas integrity verified, and 102/102 CI checks green."
     },
     "outcome": "shipped-dark"
   }

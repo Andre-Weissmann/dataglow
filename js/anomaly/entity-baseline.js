@@ -9,15 +9,18 @@
 // invoice from a vendor whose invoices normally run $200–800, even though
 // $12,000 might look fine against the whole column.
 
+// Quote an identifier safely (a column name containing " must not break the query).
+function q(name) { return '"' + String(name).replace(/"/g, '""') + '"'; }
+
 export async function computeEntityBaselines(table, entityCol, valueCol, engine) {
   const { rows } = await engine.runQuery(
-    `SELECT "${entityCol}" AS entity,
-            AVG("${valueCol}") AS mean,
-            STDDEV_POP("${valueCol}") AS stddev,
-            COUNT("${valueCol}") AS n
+    `SELECT ${q(entityCol)} AS entity,
+            AVG(${q(valueCol)}) AS mean,
+            STDDEV_POP(${q(valueCol)}) AS stddev,
+            COUNT(${q(valueCol)}) AS n
      FROM ${table}
-     WHERE "${valueCol}" IS NOT NULL
-     GROUP BY "${entityCol}"`
+     WHERE ${q(valueCol)} IS NOT NULL
+     GROUP BY ${q(entityCol)}`
   );
   const baselines = {};
   for (const r of rows) {
@@ -32,9 +35,9 @@ export async function computeEntityBaselines(table, entityCol, valueCol, engine)
 
 export async function flagEntityDeviations(table, entityCol, valueCol, baselines, engine) {
   const { rows } = await engine.runQuery(
-    `SELECT "${entityCol}" AS entity, "${valueCol}" AS value
+    `SELECT ${q(entityCol)} AS entity, ${q(valueCol)} AS value
      FROM ${table}
-     WHERE "${valueCol}" IS NOT NULL`
+     WHERE ${q(valueCol)} IS NOT NULL`
   );
   const flags = [];
   for (const r of rows) {

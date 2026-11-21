@@ -107,7 +107,9 @@ export function reconcileClaims(claimA, claimB, options = {}) {
   // Step 2 — decide by confidence when both provide one and they differ enough.
   if (confA != null && confB != null) {
     const margin = Math.abs(confA - confB);
-    if (margin > tieThreshold) {
+    // Compare with a tiny epsilon: 0.90 vs 0.85 differ by 0.05000000000000004 in
+    // floating point, which is a tie at the 0.05 threshold by any human reading.
+    if (margin - tieThreshold > 1e-9) {
       const aWins = confA > confB;
       const winningClaim = aWins ? claimA : claimB;
       const losingClaim = aWins ? claimB : claimA;

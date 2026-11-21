@@ -7,6 +7,20 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-11-21 12:30 CT] Roadmap Wave Steps 2, 5–10 — Tauri flags fix, Drill Floor split, OPFS/streaming proof, Glow Canvas refresh & storytelling, Polyglot write-back, Governance & 49-module breadth stress proof (PRs #709–#713)
+
+- **Asked:** Execute Steps 2–10 of the reorganized DataGlow roadmap checklist ("Do all this").
+- **Repo state found:** `main` at `e66ba7d` (PR #707 merged dark); 0 open PRs; 23 open issues (including #654); 4 orphan branches; 4 dark flags (`videoTranscription`, `streamingIngestion`, `opfsPersistence`, `metricAccessRules`). Preflight overlap scan found existing pure modules `js/ingestion/api-feed.js`, `js/metrics/metric-access-rules.js`, and `js/dvc/*` already shipped, plus `sw.js` missing `./flags.manifest.json` alongside `scripts/stage-desktop-frontend.mjs`. Also caught 5 newly published npm audit advisories failing `test:deps-freshness` and patched `package-lock.json` (`0` advisories).
+- **Decided:** Reuse `api-feed.js`, `readiness-gate.js`, `metric-access-rules.js`, and `dvc/*` rather than duplicating logic; keep Steps 3 & 4 (`videoTranscription`) honestly open because this cloud Linux sandbox has no hardware GPU; ship all new user-facing behavior behind default-false flags (`glowCanvasLiveRefresh`, `glowCanvasStorytelling`, `polyglotWriteback`, `metricAccessEnforcement`) and keep `streamingIngestion` / `opfsPersistence` false until explicit One Confirm approval.
+- **Built:**
+  - **PR #709 (`05bd1c6`, Step 5):** Split Drill Floor resync out of `inject_bundle16.py` into `inject_drill_floor_resync.py` (`0z4`), added `test/canvas-injector-safety.test.mjs`, and closed stale Glow Canvas doc Issue #654.
+  - **PR #710 (`d202b00`, Steps 2 & 7):** Added `flags.manifest.json` to `scripts/stage-desktop-frontend.mjs` and `sw.js` (`test/stage-desktop-frontend.test.mjs`, 19 checks), exposed `getOPFSFallbackReason()`, and proved staged desktop flag parity, 2-tab OPFS lock fallback + deferred clear, and `390x844` mobile `101.5 MB` (920k-row) streaming CSV ingestion (`test/e2e-scale-multitab-desktop-mobile.test.mjs`, 42/42 checks).
+  - **PR #711 (`7d97008`, Step 8):** Added `js/polyglot/polyglot-writeback.js` + Python `dataglow.save_df(name, df)` + R `dataglow_save_df(name, df)` behind `polyglotWriteback: false` (196 real-DuckDB + CPython pandas assertions).
+  - **PR #712 (`d8d019b`, Steps 6 & 9a):** Extended Glow Canvas with live/API feed refresh + `Connect API feed` (`glowCanvasLiveRefresh: false`) and board headline + deterministic DuckDB SQL callouts + chart notes + "So what" framing (`glowCanvasStorytelling: false`, 251 assertions + real Chromium verification).
+  - **PR #713 (Steps 9b & 10):** Added per-session `createSemanticRegistry()` in `js/validation/semantic-layer.js`, wired `metricAccessRules` into `gate-state-exporter.js` and stdio MCP `check_metric_access` behind `metricAccessEnforcement: false`, recorded the DVC evaluation in `NORTH_STAR.md`, and added `test/realworld-breadth-stress-2026-11.test.mjs` (70 tests across 49 capability modules, fixing 19 real edge-case bugs and raising capability test-evidence coverage from 28.1% to 45.0%).
+- **Outcome:** PRs #709–#713 merged to `main` with 102/102 CI checks green; all new and scale flags held dark at the One Confirm gate.
+- **Lesson for next time:** Running `npm run test:deps-freshness` during preflight before fanning out parallel worktrees catches newly published upstream npm advisories once on the base commit instead of cherry-picking `package-lock.json` across open branches.
+
 ## [2026-07-19 22:14 CT] Capability-map drift cleanup — 6 modules from the concurrent session (PR #434, #439, #441)
 
 **What was asked:** "Log this checkpoint" / cleanup request after flagging that the other concurrent

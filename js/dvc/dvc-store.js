@@ -127,8 +127,16 @@ export function extractColStats(colName, rawType, rows) {
 
   let min = null, max = null, mean = null, stddev = null;
   if (numVals.length > 0) {
-    min = Math.min(...numVals);
-    max = Math.max(...numVals);
+    // Loop instead of Math.min(...numVals)/Math.max(...numVals): spreading a
+    // 100k+ element array throws "RangeError: Maximum call stack size exceeded",
+    // which crashed snapshotting on any real 100 MB-class dataset (caught by the
+    // 2026-11-21 breadth stress pass).
+    min = numVals[0];
+    max = numVals[0];
+    for (let i = 1; i < numVals.length; i++) {
+      if (numVals[i] < min) min = numVals[i];
+      if (numVals[i] > max) max = numVals[i];
+    }
     mean = numVals.reduce((a, b) => a + b, 0) / numVals.length;
     const variance = numVals.reduce((a, b) => a + (b - mean) ** 2, 0) / numVals.length;
     stddev = Math.sqrt(variance);
@@ -260,7 +268,11 @@ export class DVCStore {
    * @returns {Snapshot[]}
    */
   list(datasetName) {
-    const all = Array.from(this._snapshots.values());
+    // Reverse insertion order BEFORE the (stable) sort so snapshots created in
+    // the same millisecond still come back newest-first. Without this, ties kept
+    // insertion order (oldest first), so list()[0] was NOT the latest snapshot and
+    // snapshotIfChanged() compared against the wrong baseline (2026-11-21 fix).
+    const all = Array.from(this._snapshots.values()).reverse();
     const filtered = datasetName ? all.filter(s => s.datasetName === datasetName) : all;
     return filtered.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
@@ -391,6 +403,17 @@ export class DVCStore {
   timeline(datasetName) {
     return this.list(datasetName).reverse();
   }
+}
+
+/**
+ * Factory parity with the other governance stores (createRulepackRegistry,
+ * createSemanticRegistry, createMetricAccessRegistry): returns an independent
+ * store, optionally rehydrated from a previously exported JSON blob/object.
+ * @param {string|Object} [initial]
+ * @returns {DVCStore}
+ */
+export function createDVCStore(initial) {
+  return initial ? DVCStore.fromJSON(initial) : new DVCStore();
 }
 
 // Singleton for use across DataGlow modules

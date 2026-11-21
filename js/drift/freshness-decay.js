@@ -56,6 +56,16 @@ export function computeFreshnessDecay({ dataDate, asOf, packId, freshnessConfig 
     });
   }
 
+  if (isNaN(refDate.getTime())) {
+    // An unparseable asOf used to flow through as NaN age -> 'stale' with a NaN
+    // multiplier, which then poisoned the trust score (NaN * score = NaN).
+    return makeFreshnessResult({
+      status: 'unknown', multiplier: 1.0, ageDays: null, staleAfterDays,
+      expiredAfterDays, decayFloor, decayShape,
+      rationale: 'Invalid reference date "' + String(asOf) + '" -- freshness decay cannot be computed. Assuming fresh (multiplier 1.0).',
+    });
+  }
+
   const d = new Date(dataDate);
   if (isNaN(d.getTime())) {
     return makeFreshnessResult({
