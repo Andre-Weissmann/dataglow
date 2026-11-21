@@ -107,7 +107,7 @@ const noChart = () => Promise.resolve();
 {
   // flags manifest: both default OFF
   const m = JSON.parse(readFileSync(new URL('../flags.manifest.json', import.meta.url), 'utf8'));
-  ok(m.flags.glowCanvasLiveRefresh && m.flags.glowCanvasLiveRefresh.enabled === false, 'glowCanvasLiveRefresh ships default-off');
+  ok(m.flags.glowCanvasLiveRefresh && m.flags.glowCanvasLiveRefresh.enabled === true, 'glowCanvasLiveRefresh ships enabled after Step 6 confirmation');
   ok(m.flags.glowCanvasStorytelling && m.flags.glowCanvasStorytelling.enabled === false, 'glowCanvasStorytelling ships default-off');
 }
 

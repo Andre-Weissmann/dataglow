@@ -1780,13 +1780,13 @@
       "status": "shipped"
     },
     {
-      "id": "glow-canvas-refresh-and-storytelling",
+      "id": "glow-canvas-live-refresh",
       "platforms": [
         "browser",
         "desktop"
       ],
       "area": "Language runtimes & visualization",
-      "name": "Glow Canvas live/API refresh and dashboard storytelling (Steps 6 + 9 Part 1, dark)",
+      "name": "Glow Canvas live/API feed refresh (Step 6)",
       "files": [
         "js/runtimes-viz/glow-canvas.js",
         "js/app-shell/tabs/glow-canvas-tab.js"
@@ -1805,6 +1805,33 @@
           "name": "isLiveFeedDataset"
         },
         {
+          "file": "js/app-shell/tabs/glow-canvas-tab.js",
+          "name": "refreshDatasetOnCanvas"
+        },
+        {
+          "file": "js/app-shell/tabs/glow-canvas-tab.js",
+          "name": "connectApiFeedOnCanvas"
+        }
+      ],
+      "relatedFlags": [
+        "glowCanvasLiveRefresh"
+      ],
+      "status": "shipped"
+    },
+    {
+      "id": "glow-canvas-storytelling",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Language runtimes & visualization",
+      "name": "Glow Canvas dashboard storytelling (Step 9 Part 1, dark)",
+      "files": [
+        "js/runtimes-viz/glow-canvas.js",
+        "js/app-shell/tabs/glow-canvas-tab.js"
+      ],
+      "symbols": [
+        {
           "file": "js/runtimes-viz/glow-canvas.js",
           "name": "updateCardStory"
         },
@@ -1819,14 +1846,9 @@
         {
           "file": "js/runtimes-viz/glow-canvas.js",
           "name": "buildCalloutSQL"
-        },
-        {
-          "file": "js/app-shell/tabs/glow-canvas-tab.js",
-          "name": "refreshDatasetOnCanvas"
         }
       ],
       "relatedFlags": [
-        "glowCanvasLiveRefresh",
         "glowCanvasStorytelling"
       ],
       "status": "behind-flag"
