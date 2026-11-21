@@ -4,6 +4,15 @@
 
 import { state } from '../app-shell/state.js';
 import * as engine from '../app-shell/duckdb-engine.js';
+import { isEnabled } from '../build/build-flags.js';
+import { registerObject } from '../app-shell/object-space.js';
+import * as provenance from '../provenance/provenance.js';
+import {
+  validateWritebackTableName,
+  normalizeWritebackRows,
+  materializeWritebackTables,
+  buildRuntimeWritebackDeps,
+} from '../polyglot/polyglot-writeback.js';
 
 const PYODIDE_CDN_BASE = 'https://cdn.jsdelivr.net/pyodide/v0.26.2/full/';
 
@@ -105,6 +114,30 @@ class _DataglowBridge:
         if name not in self._tables:
             raise ValueError(f"Table '{name}' not loaded. Load it from the sidebar first, or check the name.")
         return self._tables[name].copy()
+    # Roadmap Step 8 (polyglotWriteback): save a DataFrame back as a DuckDB table.
+    # The JS side only installs the queue callback while the flag is on, so with
+    # the flag off this raises a clear error and nothing else changes.
+    def save_df(self, name, df):
+        return _dataglow_save_df(name, df)
+
+def _dataglow_save_df(name, df):
+    import js as _js
+    queue = getattr(_js, '__dataglowQueuePySave', None)
+    if queue is None:
+        raise RuntimeError("dataglow.save_df requires the polyglotWriteback feature flag to be enabled.")
+    if not isinstance(name, str):
+        raise TypeError("dataglow.save_df(name, df): name must be a string.")
+    if not isinstance(df, pd.DataFrame):
+        try:
+            df = pd.DataFrame(df)
+        except Exception as e:
+            raise TypeError("dataglow.save_df(name, df): df must be a pandas DataFrame or a list of dicts.") from e
+    cols = [str(c) for c in df.columns]
+    if len(set(c.lower() for c in cols)) != len(cols):
+        raise ValueError("dataglow.save_df: duplicate column names; rename them before saving.")
+    out = df.copy()
+    out.columns = cols
+    queue(name, out.to_json(orient='records', date_format='iso'), _json.dumps(cols))
 
 dataglow = _DataglowBridge()
     `);
@@ -131,7 +164,28 @@ async function capturePyFigures(pyodide) {
   }
 }
 
-export async function runPython(code, activeTableName) {
+// Roadmap Step 8 (polyglotWriteback). Installs the JS queue that
+// `dataglow.save_df(name, df)` calls into, for the duration of ONE run. Names and
+// payloads are validated immediately so a bad save raises inside the user's
+// script, with a Python traceback pointing at the offending line.
+export function installPySaveQueue(target = globalThis) {
+  const pending = [];
+  target.__dataglowQueuePySave = (name, jsonStr, columnsJson) => {
+    const clean = validateWritebackTableName(name);
+    let rows;
+    let columns;
+    try { rows = JSON.parse(jsonStr); } catch (e) { throw new Error('save_df: could not read the DataFrame JSON (' + e.message + ').'); }
+    try { columns = columnsJson ? JSON.parse(columnsJson) : undefined; } catch (_e) { columns = undefined; }
+    const norm = normalizeWritebackRows(rows, { columns });
+    pending.push({ name: clean, rows: norm, columns: norm.columns, language: 'python' });
+  };
+  return {
+    pending,
+    dispose() { try { delete target.__dataglowQueuePySave; } catch (_e) { target.__dataglowQueuePySave = undefined; } },
+  };
+}
+
+export async function runPython(code, activeTableName, { onTableSaved } = {}) {
   const pyodide = state.pyodide;
   if (!pyodide) throw new Error('Python runtime not ready yet.');
 
@@ -149,6 +203,11 @@ export async function runPython(code, activeTableName) {
   pyodide.setStdout({ batched: (s) => stdout.push(s) });
   pyodide.setStderr({ batched: (s) => stdout.push('ERR: ' + s) });
 
+  // Write-back is DARK: with the flag off no queue is installed, so save_df
+  // raises a clear RuntimeError and this function behaves exactly as before.
+  const writeback = isEnabled('polyglotWriteback') ? installPySaveQueue() : null;
+  if (!writeback) { try { delete globalThis.__dataglowQueuePySave; } catch (_e) { /* ignore */ } }
+
   try {
     let result = await pyodide.runPythonAsync(code);
     // Try to get a repr of the last expression for notebook-style display
@@ -157,10 +216,27 @@ export async function runPython(code, activeTableName) {
       try { resultStr = result.toString(); } catch (e) { /* ignore */ }
     }
     const images = await capturePyFigures(pyodide);
-    return { stdout: stdout.join(''), result: resultStr, error: null, truncated, images };
+    const out = { stdout: stdout.join(''), result: resultStr, error: null, truncated, images };
+    if (writeback) {
+      // Only a run that finished without error commits its saves.
+      const { saved, failed } = await materializeWritebackTables(
+        writeback.pending,
+        buildRuntimeWritebackDeps({
+          engine, state, provenance, onTableSaved,
+          registerObject: isEnabled('objectSpaceRegistry') ? registerObject : undefined,
+        }),
+      );
+      out.saved = saved;
+      out.saveErrors = failed;
+    }
+    return out;
   } catch (err) {
     // Capture any figures drawn before the error too, so a partial plot still shows.
     const images = await capturePyFigures(pyodide);
-    return { stdout: stdout.join(''), result: null, error: err.message, truncated, images };
+    const out = { stdout: stdout.join(''), result: null, error: err.message, truncated, images };
+    if (writeback) { out.saved = []; out.saveErrors = []; }
+    return out;
+  } finally {
+    if (writeback) writeback.dispose();
   }
 }

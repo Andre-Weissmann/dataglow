@@ -2844,13 +2844,46 @@ function ensurePythonRuntime() {
   }).catch(err => { statusBadge.textContent = 'Failed to load'; statusBadge.className = 'badge badge-d'; toast('Python runtime failed to load: ' + err.message, 'error'); });
 }
 
+// Roadmap Step 8 (polyglotWriteback, dark): tables a Python/R script saved back
+// into DuckDB are ordinary datasets as of the moment they are materialized.
+// Refresh the surfaces that list datasets, and render the confirmation (or the
+// per-table failure) lines under the runtime's own output. All no-ops when the
+// flag is off, because the runtimes then return no `saved`/`saveErrors`.
+function refreshAfterWriteback() {
+  try {
+    renderSidebar();
+    registerRuntimeObjects('sql');
+    if (typeof window !== 'undefined') window.refreshAllSelectors?.();
+  } catch (e) { /* UI refresh must never undo a completed save */ }
+}
+
+function renderWritebackLines(saved, saveErrors) {
+  let html = '';
+  for (const s of saved || []) {
+    html += `<div class="ok" data-testid="writeback-saved" style="margin-top:var(--space-2);">${escapeHtml(s.message)}</div>`;
+  }
+  for (const f of saveErrors || []) {
+    html += `<div class="err" data-testid="writeback-error" style="margin-top:var(--space-2);">Could not save table "${escapeHtml(f.name)}": ${escapeHtml(f.error)}</div>`;
+  }
+  if (saved && saved.length) {
+    toast(saved.length === 1 ? saved[0].message : `Saved ${saved.length} tables to DuckDB \u2014 ready in SQL, Glow Canvas & Export`, 'success');
+  }
+  if (saveErrors && saveErrors.length) toast(`${saveErrors.length} table(s) could not be saved \u2014 see the output`, 'error');
+  return html ? `<div class="console-log" style="margin-top:var(--space-2);">${html}</div>` : '';
+}
+
 function initPythonTab() {
+  if (isEnabled('polyglotWriteback')) {
+    const pyInput = $('#py-input');
+    if (pyInput) pyInput.placeholder += "\n# Save a result back as a SQL table:\n# dataglow.save_df('my_result', df)";
+  }
   $('#btn-py-run').addEventListener('click', async () => {
     const code = $('#py-input').value;
     const outWrap = $('#py-output-wrap');
     outWrap.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
     try {
-      const { stdout, result, error, truncated, images } = await pyRuntime.runPython(code, getActiveDataset()?.table);
+      const { stdout, result, error, truncated, images, saved, saveErrors } = await pyRuntime.runPython(code, getActiveDataset()?.table);
+      if (saved && saved.length) refreshAfterWriteback();
       // Object Space (Batch B): the datasets pushed into the pandas bridge are
       // now live Python objects — register them (flag-gated, no-op when off).
       registerRuntimeObjects('python');
@@ -2877,6 +2910,7 @@ function initPythonTab() {
       for (const src of pyRuntime.extractImageDataUrls(images)) {
         html += `<img class="runtime-chart" alt="Python chart output" src="${escapeHtml(src)}" />`;
       }
+      html += renderWritebackLines(saved, saveErrors);
       html += '<div id="py-query-memory-host"></div>';
       outWrap.innerHTML = html;
       // Query Memory (batch 2): no-op when the queryMemory flag is off.
@@ -2923,12 +2957,17 @@ function ensureRRuntime() {
 }
 
 function initRTab() {
+  if (isEnabled('polyglotWriteback')) {
+    const rInput = $('#r-input');
+    if (rInput) rInput.placeholder += "\n# Save a result back as a SQL table:\n# dataglow_save_df('my_result', df)";
+  }
   $('#btn-r-run').addEventListener('click', async () => {
     const code = $('#r-input').value;
     const outWrap = $('#r-output-wrap');
     outWrap.innerHTML = '<div class="skeleton" style="height:100px; border-radius:var(--radius-md); margin-top:var(--space-3);"></div>';
     try {
-      const { stdout, error, images, graphicsAvailable, hasJsonlite } = await rRuntime.runR(code);
+      const { stdout, error, images, graphicsAvailable, hasJsonlite, saved, saveErrors } = await rRuntime.runR(code);
+      if (saved && saved.length) refreshAfterWriteback();
       // Object Space (Batch B): the datasets bridged into R are now live R
       // data.frames — register them (flag-gated, no-op when off).
       registerRuntimeObjects('r');
@@ -2945,6 +2984,7 @@ function initRTab() {
       for (const src of rRuntime.extractImageDataUrls(images)) {
         html += `<img class="runtime-chart" alt="R chart output" src="${escapeHtml(src)}" />`;
       }
+      html += renderWritebackLines(saved, saveErrors);
       html += '<div id="r-query-memory-host"></div>';
       outWrap.innerHTML = html;
       // Query Memory (batch 2): no-op when the queryMemory flag is off.
