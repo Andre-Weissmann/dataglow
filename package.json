@@ -155,6 +155,7 @@
     "test:r3r4captureship": "node test/r3-r4-capture-ship-pack.test.mjs",
     "test:a50jobscalmpolish": "node test/a50-jobs-calm-polish.test.mjs",
     "test:drillfloor": "node test/drill-floor.test.mjs",
+    "test:canvasinjectors": "node test/canvas-injector-safety.test.mjs",
     "test:drilldiff": "node test/drill-diff.test.mjs",
     "test:pivot": "node --import ./test/duckdb-loader-hook.mjs test/pivot-builder.test.mjs",
     "test:cleaningcrew": "node test/cleaning-crew-profiler.test.mjs",

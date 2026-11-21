@@ -1457,10 +1457,13 @@ only, and any combination of the two can each reach a finished chart.
 
 **Dashboard status, precisely:** the single-chart Visualize tab is live and produces genuinely
 presentation-quality output (verified by opening the actual exported PNG file). The actual named
-dashboard capability, Glow Canvas, remains `enabled: false` in `flags.manifest.json` — confirmed live in
-the running app that `tab-glowcanvas` is entirely absent from the rendered tabbar when the flag is off
-(not greyed out, just missing), so there is currently no visible signal to a user that a dashboard-builder
-exists at all.
+dashboard capability, Glow Canvas, was `enabled: false` in `flags.manifest.json` at the time of this run —
+confirmed live in the running app that `tab-glowcanvas` was entirely absent from the rendered tabbar while
+the flag was off (not greyed out, just missing), so there was no visible signal to a user that a
+dashboard-builder existed at all. **[Updated: stale since PR #316 — `glowCanvas` is now `enabled: true` in
+`flags.manifest.json` (promoted in PR #316 "Phase 6: end-to-end unblock", then independently re-verified
+end to end: a real bar chart rendered from a 10-row sample dataset via the Add Chart form, zero JS errors).
+The tab is now visible in the tabbar. The finding above is kept as the historical record of this run.]**
 
 **BI-tool interop, verified by opening actual exported files (not just reading the export code):** Excel
 export is clean and BI-import-friendly, with two confirmed small bugs — dates are written as text, not
@@ -1501,7 +1504,10 @@ precise scope statement rather than a blanket claim. Share with confidence: any 
 data-quality finding (every independently-checkable seeded defect held up under direct SQL
 cross-verification), a single exported Visualize chart, and the governance features (AI-readiness gate,
 sensitive-column merge lockout, ZK proof options) as genuine differentiators. Do not yet claim, without
-caveat: "dashboard" (say "chart/visualization" until Glow Canvas ships), "direct BI-tool export" (say
+caveat: "dashboard" (this run advised saying "chart/visualization" until Glow Canvas shipped; **[Updated: Glow
+Canvas is live since PR #316, so "Glow Canvas" can now be named — scope it honestly as a multi-chart canvas
+with same-table cross-filtering and drag-reorder, not a full BI-grade dashboard (no cross-table filtering,
+no resize-drag), per the standing LinkedIn-honesty rules]**), "direct BI-tool export" (say
 "exports to Excel for BI hand-off"), or "verified cross-platform parity" (say "ships to web, desktop, and
 mobile from one codebase," which is true and verifiable, not "tested identically across all three," which
 isn't yet true). The core data-quality engine's rigor (Benford's Law, kNN multivariate outliers, honest
@@ -1515,7 +1521,8 @@ referential-integrity discoverability — surface a prompt when a second file wo
 export filename double-extension bug and Excel date-as-text export — both small, both visible to a BI
 stakeholder; (4) PDF em-dash-to-`?` encoding bug — cosmetic, but visible in every export; (5) Glow Canvas —
 already built per the capability map, needs whatever gate is holding the flag dark cleared, then
-cross-filtering QA before flip; (6) NCCI same-day conflicting-procedure detection — a genuinely new build,
+cross-filtering QA before flip **[Updated: DONE — flag promoted to `enabled: true` in PR #316; no longer an
+open item]**; (6) NCCI same-day conflicting-procedure detection — a genuinely new build,
 real value for healthcare-claims positioning specifically; (7) mobile touch-target sizing and scroll
 affordance — low cost, meaningful given the founder's own iPhone-primary usage pattern.
 
@@ -2893,27 +2900,26 @@ re-deriving it from scratch each session.
       for others already there. If a sixth chip/button is ever added, it should default to joining
       `#dg-spine-chip-row` from the start rather than repeating this discover-then-patch cycle.
 
-0z4. **Found while fixing 0z3, not yet fixed — `inject_bundle16.py` would silently revert real shipped
-    behavior in `js/drill-floor/drill-floor.js` if re-run verbatim today.** That script's docstring says it
-    hand-regenerates the canvas copy's `window.DrillFloor` mount body (a "REAL mountDrillFloor function
-    body" plus Check-answer/golden-answer/RECEIPT UI parity) rather than doing a plain verbatim splice of
-    the checked-in `js/drill-floor/drill-floor.js` source. Running it during the 0z3 fix (before that fix's
-    scope was narrowed to skip this file) regenerated a version of that span roughly 10KB smaller than what
-    is currently live in `canvas/index.html`, and `drill-floor-data.js`'s span shrank too (~800 bytes) --
-    caught only because `check:canvas-integrity`'s aggregate byte-count guard flagged the drop before
-    anything was committed; neither file is in the strict per-file tracked manifest, so a smaller,
-    unintentional re-sync of just these two files alone would NOT have been caught by the per-file hash
-    check, only by the whole-canvas byte-count comparison. This means the canvas's current `drill-floor.js`
-    span has drifted ahead of what `inject_bundle16.py`'s generation logic would produce from today's
-    checked-in source, and whoever next has a legitimate reason to touch any of the OTHER five files that
-    script also owns (`repair-ledger.js`, `data-glow-repair-ledger-canvas.js`, `csv-quarantine-canvas.js`,
-    `excel-hell-canvas.js`, `drill-floor-data.js`) needs to know running it will also silently regress
-    `drill-floor.js` unless this is fixed first. Likely fix direction: either (a) update
-    `inject_bundle16.py`'s hand-written `drill-floor.js` mount-body template to match what is actually live
-    in the canvas today, then re-verify byte parity, or (b) split `drill-floor.js`/`drill-floor-data.js`
-    out of `inject_bundle16.py` into their own narrow, verbatim-splice script (same pattern used for this
-    session's `inject_0z3_packs_resync.py`) so the two very different re-sync strategies (verbatim splice
-    vs. hand-regenerated template) stop sharing one script and one run.
+0z4. ✅ **DONE (2026-11-21) — `inject_bundle16.py` no longer owns the Drill Floor spans.** Originally found
+    while fixing 0z3: re-running that script regenerated `js/drill-floor/drill-floor.js`'s canvas span from
+    a hand-written `mountDrillFloor` template and shrank it by ~10KB (and `drill-floor-data.js` by ~800
+    bytes), silently reverting shipped behavior (the Bundle 18 live-engine resolver, the real mount UI, the
+    six-table `window.DrillFloorData` list). Only `check:canvas-integrity`'s whole-canvas byte-count guard
+    would have caught it, since neither file is in the per-file tracked manifest.
+    **Resolution (option b, split):** (1) `inject_bundle16.py` now splices ONLY its five Part A modules
+    (`js/spine/repair-ledger.js` + the four `*-canvas.js` UIs) and never reads or writes the Drill Floor
+    spans. (2) New `inject_drill_floor_resync.py` owns them with a different strategy: it regenerates only
+    the engine body from `js/drill-floor/*.js` and re-emits the live UI tail (resolver, `mountDrillFloor`,
+    `window.DrillFloor`, `window.DrillFloorData` list, overlay wiring) verbatim from the current canvas, so
+    running it on an in-sync canvas is a byte-for-byte no-op. It refuses (writes nothing) if a tail anchor
+    is missing or the source exports a table/generator the live `window.DrillFloorData` tail doesn't
+    expose; `--check` reports drift without writing. (3) New `test/canvas-injector-safety.test.mjs`
+    (`npm run test:canvasinjectors`, wired into the inline `drill-floor` CI job) runs both injectors against
+    a temp copy and asserts the canvas SHA-256 is unchanged and the Drill Floor spans never shrink.
+    While verifying zero-diff, one real Part A drift surfaced and was fixed at the source: PR #629's
+    typography sweep rewrote a `font-size:9px` badge in the canvas copy of `data-glow-excel-hell-canvas.js`
+    but not its `js/` source (that file is not in the tracked manifest); the source now uses
+    `var(--dg-text-xs)` to match the authoritative canvas.
 
 **From 2026-07-18 (provenancePacket promotion run) — low-priority, nice-to-have, explicitly deferred by
 the user ("more stuff can be added later on"):**
