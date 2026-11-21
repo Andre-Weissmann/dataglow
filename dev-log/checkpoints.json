@@ -370,5 +370,41 @@
       "notTouched": "Only streamingIngestion and opfsPersistence flipped to true following explicit user confirmation of Step 7; OPFS still stays inactive unless the user enables the Settings consent toggle. Remaining 6 dark flags (videoTranscription, glowCanvasLiveRefresh, glowCanvasStorytelling, polyglotWriteback, metricAccessEnforcement, serverOffload) stay false."
     },
     "outcome": "shipped-live"
+  },
+  {
+    "id": "chk_20261121_3",
+    "startedAt": "2026-11-21T18:52:00Z",
+    "endedAt": "2026-11-21T19:00:00Z",
+    "trigger": "run-end",
+    "title": "Roadmap Step 6 complete — enable glowCanvasLiveRefresh flag after user confirmation",
+    "before": {
+      "openPRs": 0,
+      "openIssues": 22,
+      "orphanBranches": 4,
+      "darkFlags": 6,
+      "ciStatus": "success"
+    },
+    "after": {
+      "openPRs": 0,
+      "openIssues": 22,
+      "orphanBranches": 4,
+      "darkFlags": 5,
+      "ciStatus": "success"
+    },
+    "diffstat": {
+      "filesChanged": 6,
+      "additions": 78,
+      "deletions": 28
+    },
+    "commits": [
+      "1f323dc"
+    ],
+    "prUrl": "https://github.com/Andre-Weissmann/dataglow/pull/715",
+    "verification": {
+      "testsRun": 318,
+      "testsPassed": 318,
+      "notTouched": "Only glowCanvasLiveRefresh flipped to true following explicit user confirmation of Step 6; auto-polling stays off unless a user selects an interval. Remaining 5 dark flags (glowCanvasStorytelling, polyglotWriteback, metricAccessEnforcement, serverOffload, videoTranscription) remain false."
+    },
+    "outcome": "shipped-live"
   }
 ]

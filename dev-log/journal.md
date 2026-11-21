@@ -7,6 +7,13 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-11-21 13:00 CT] Roadmap Step 6 Complete — Enable glowCanvasLiveRefresh (PR #715)
+
+- **Asked:** Turn on `glowCanvasLiveRefresh` to complete Step 6 ("Live and API feed refresh on Glow Canvas").
+- **Built:** Flipped `glowCanvasLiveRefresh` to `true` in `flags.manifest.json`, split `glow-canvas-live-refresh` (now `shipped`) from `glow-canvas-storytelling` (still `behind-flag`) in `capability-map.manifest.json` and `docs/capability-map.md`, and updated `test/glow-canvas-refresh-and-storytelling.test.mjs`.
+- **Outcome:** Shipped live via PR #715; 185 flags now live, 5 flags dark.
+- **Lesson for next time:** When one PR bundles two independently gated capabilities (like live refresh + storytelling), splitting their capability-map entries from the start avoids editing the manifest again when one flag is promoted ahead of the other.
+
 ## [2026-11-21 12:40 CT] Roadmap Step 7 Complete — Enable streamingIngestion & opfsPersistence (PR #714)
 
 - **Asked:** Turn on `streamingIngestion` and `opfsPersistence` to complete Step 7 after reviewing PR #710's staged-desktop, 2-tab OPFS fallback, and mobile 101.5 MB streaming proof.
