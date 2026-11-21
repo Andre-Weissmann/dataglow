@@ -176,6 +176,14 @@ jobs:
         env:
           PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
         run: npm run test:spinemobile
+      # Scale flags proof against the STAGED Tauri desktop bundle: flag parity,
+      # multi-tab OPFS lock fallback, and a 390x844 mobile viewport with a >100MB
+      # streamed CSV. opfsPersistence/streamingIngestion are enabled ONLY inside
+      # the test server; flags.manifest.json on disk stays false.
+      - name: Run scale flags multi-tab / staged desktop / mobile e2e test
+        env:
+          PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: ${{ steps.setup-chrome.outputs.chrome-path }}
+        run: npm run test:e2e-scalemultitab
       - name: Upload failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4

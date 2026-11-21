@@ -32,6 +32,12 @@ jobs:
       # slipping in unreviewed.
       - name: Fail on new lifecycle (install) scripts
         run: npm run test:lifecycle-scripts
+      # Tauri desktop packaging guard: the staged src-tauri/dist/ bundle must
+      # carry every root-level runtime JSON asset the app fetches (notably
+      # flags.manifest.json -- without it every flag silently reads OFF in the
+      # packaged desktop window).
+      - name: Verify staged desktop bundle carries runtime manifests
+        run: npm run test:stagedesktop
       # Generate a CycloneDX Software Bill of Materials and publish it as a
       # build artifact (no bot commit needed). docs/sbom.json is gitignored so
       # a locally generated copy never lands in the repo by accident.

@@ -121,10 +121,23 @@ Newest entries go at the bottom of **Entries**.
   options if next touched: derive the list from what `index.html`/the module
   graph actually reference, or add a smoke assertion that every root asset the
   site loads is present under the staged dir.
+- **Resolution (2026-11-21):** this gap bit for real: `flags.manifest.json`
+  (fetched by `js/app-shell/main.js` via `new URL('../../flags.manifest.json',
+  import.meta.url)`) was missing from `ASSETS`, so in the packaged desktop window
+  the fetch 404'd and every flag silently read as OFF. It is now staged, and
+  `./flags.manifest.json` was also added to the service worker's `PRECACHE_URLS`
+  so offline PWA cold-starts keep their flags. `test/stage-desktop-frontend.test.mjs`
+  (`npm run test:stagedesktop`, wired into the supply-chain-hardening CI job) runs
+  the stage script, byte-compares the staged manifests/index.html, scans
+  `main.js`/`index.html` for root-relative JSON/manifest fetches and fails if any
+  is not in `ASSETS`, and proves the staged manifest enables `glowCanvas` and
+  `audioTranscription` while `videoTranscription` stays off.
+  `test/e2e-scale-multitab-desktop-mobile.test.mjs` additionally boots the staged
+  bundle in Chromium and confirms all flags load live.
 - **Date:** 2026-07-08
 - **Severity:** low
 - **Area:** `scripts/stage-desktop-frontend.mjs`, `src-tauri/tauri.conf.json`
-- **Status:** open
+- **Status:** resolved
 
 ### 2026-07-08 — Divergent `NUMERIC_TYPES` constant duplicated across 12 modules
 
@@ -755,5 +768,5 @@ Newest entries go at the bottom of **Entries**.
 - Area: root Cleaning Crew audio/video ingestion
 - Status: fixed in the video-transcription-review branch, awaiting merge
 - Resolution: pending transcripts remain outside DuckDB/state, editable human review is revision-bound, and a single-use named confirmation is required to import. Cancellation/discard leave no dataset. Tests now assert enforcement rather than reassuring copy.
-- Follow-up: the separate canvas UI does not mount these root modules; native Tauri and physical mobile runtime proof remain open. The Tauri staging allowlist appears to omit `flags.manifest.json`; this pre-existing packaging issue must be investigated before claiming the media station is available in a packaged desktop build. Historical scaffold/docs estimates such as "95%+" and fixed transcription speed factors were never proof. The active video helpers no longer use those estimates.
+- Follow-up: the separate canvas UI does not mount these root modules; native Tauri and physical mobile runtime proof remain open. The Tauri staging allowlist omitted `flags.manifest.json`; confirmed and fixed 2026-11-21 (see the 2026-07-08 staging-allowlist entry; guard `test/stage-desktop-frontend.test.mjs`). Native Tauri runtime proof of the media station itself is still open. Historical scaffold/docs estimates such as "95%+" and fixed transcription speed factors were never proof. The active video helpers no longer use those estimates.
 - Runtime proof: real Whisper downloaded and initialized on sandbox Chromium's software WebGPU adapter, but did not finish within 180 seconds. This is not a successful ASR/accuracy test; hardware-backed end-to-end proof remains required before recommending enablement.

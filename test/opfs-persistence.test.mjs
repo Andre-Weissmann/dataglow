@@ -31,6 +31,7 @@ import {
   clearOPFSDatabase,
   consumePendingOPFSClear,
   isOPFSPersistenceActive,
+  getOPFSFallbackReason,
 } from '../js/app-shell/duckdb-engine.js';
 
 let passed = 0, failed = 0;
@@ -47,6 +48,9 @@ async function okAsync(name, promiseFn) {
     console.log(`  \u2717 ${name}\n      threw: ${e.message}`);
   }
 }
+
+ok('getOPFSFallbackReason() is null when no OPFS open was ever attempted (Node)',
+  getOPFSFallbackReason() === null);
 
 // --- Constants: naming/collision sanity (these are load-bearing strings —
 //     a typo here would silently split consent state across two keys) ---

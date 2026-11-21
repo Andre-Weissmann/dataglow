@@ -28,6 +28,7 @@ const ASSETS = [
   'index.html',
   'manifest.webmanifest',
   'capability-map.manifest.json',
+  'flags.manifest.json',
   'sw.js',
   'assets',
   'css',
