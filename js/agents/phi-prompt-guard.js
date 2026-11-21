@@ -17,6 +17,11 @@
 //      it. Any column whose NAME matches (race / ethnicity / insurance / payer /
 //      gender / sex / religion / marital) has its VALUES redacted from the prompt.
 //
+//      Direct-identifier names (ssn, mrn, dob, patient/first/last name, phone,
+//      email, street address) are ALSO treated as sensitive by column name:
+//      those values have no detectable shape, so the value scan below could
+//      never catch "Jane Doe" or "1950-02-03" on its own.
+//
 //   2. A minimal, always-on value-pattern scan for the shapes that are sensitive
 //      no matter what the column is called and no matter whether a domain pack is
 //      active — SSN-shaped and MRN-shaped strings, plus emails and long digit
@@ -36,8 +41,8 @@ import { isSensitiveCategory } from '../validation/categorical-consistency.js';
 // SHAPES, not a domain pack: they fire even when no pack is active. Order
 // matters only for the label attached to a match; redaction is idempotent.
 export const DEFAULT_SENSITIVE_PATTERNS = Object.freeze([
-  // US Social Security number: 3-2-4 digits with - or space separators.
-  { id: 'ssn', label: 'SSN', re: /\b\d{3}[-\s]\d{2}[-\s]\d{4}\b/g },
+  // US Social Security number: 3-2-4 digits with -, . or space separators.
+  { id: 'ssn', label: 'SSN', re: /\b\d{3}[-\s.]\d{2}[-\s.]\d{4}\b/g },
   // Medical record number: an "MRN"/"medical record" label followed by digits.
   { id: 'mrn', label: 'MRN', re: /\b(?:mrn|medical\s+record(?:\s+(?:no|number|#))?)\s*[:#]?\s*[A-Z]?\d{5,}\b/gi },
   // Email address.
@@ -57,9 +62,21 @@ const REDACTION = (label) => `[REDACTED:${label}]`;
  * @param {string[]} columns
  * @returns {string[]} the subset that is sensitive
  */
+// Direct-identifier column names (HIPAA Safe Harbor items a value-shape scan
+// cannot see: a patient name, a date of birth, a phone number and a street
+// address have no recognisable SHAPE). Matched on a normalised header so
+// "Patient Name", "patientName", "date-of-birth" and "patient_name" all hit.
+const DIRECT_IDENTIFIER_COLUMN = /(^|_)(ssn|social_security(_number)?|mrn|medical_record(_number)?|dob|birth_date|date_of_birth|birthdate|(patient|member|subscriber|person|first|last|middle|full|given|family|maiden)_name|name_(first|last|full)|phone(_number)?|telephone|mobile|cell(_phone)?|fax|email(_address)?|e_mail|(street|home|mailing|billing)_address|address(_line)?_?[12]?)($|_)/i;
+
+function normHeader(name) {
+  return String(name == null ? '' : name).trim()
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2').replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[\s\-./]+/g, '_').replace(/_+/g, '_').toLowerCase();
+}
+
 export function classifySensitiveColumns(columns) {
   if (!Array.isArray(columns)) return [];
-  return columns.filter((c) => isSensitiveCategory(c));
+  return columns.filter((c) => isSensitiveCategory(c) || DIRECT_IDENTIFIER_COLUMN.test(normHeader(c)));
 }
 
 /**

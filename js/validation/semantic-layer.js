@@ -47,7 +47,11 @@
 // `Net_Revenue` and `net_revenue` are the same metric.
 // ------------------------------------------------------------
 
-const registry = new Map();
+// SESSION-ISOLATION FACTORY (2026-11-21, Roadmap Step 10): the metric Map now
+// lives inside createSemanticRegistry() so concurrent sessions / test callers
+// can each own independent state. The module-level exports below delegate to
+// ONE default registry created at module load, so every existing caller keeps
+// the exact original signatures and shared-singleton behavior. Purely additive.
 
 // Reserved words / function names that must never be treated as a column
 // reference when deriving a metric's required columns from its expression.
@@ -84,64 +88,97 @@ export function deriveColumnsFromExpression(expression) {
   return out;
 }
 
+// ------------------------------------------------------------
+// Registry factory. Keyed by lowercased metric name so `Net_Revenue` and
+// `net_revenue` are the same metric.
+// ------------------------------------------------------------
+
 /**
- * Register (or overwrite) a human-authored metric definition. This stores
- * EXACTLY what it is given — it never infers or invents a definition. `name`
- * and `expression` are required; everything else is optional provenance.
- *
- * @param {object} def
- * @param {string} def.name          e.g. "net_revenue"
- * @param {string} def.expression    canonical SQL expression, e.g. "SUM(amount) - SUM(refund_amount)"
- * @param {string} [def.description] human-readable meaning
- * @param {string[]} [def.requiredColumns] columns the expression references;
- *   derived from `expression` when omitted
- * @param {string} [def.owner]       who defined it (provenance)
- * @param {number|string} [def.createdAt] when it was defined; defaults to now
- * @returns {object} the normalized, stored definition (a copy)
+ * Create a brand-new, independent metric registry (its own private Map). Two
+ * registries never share registrations, overwrites, clears, or check results.
+ * @returns {{registerMetric:Function,getRegisteredMetrics:Function,getMetric:Function,unregisterMetric:Function,clearMetrics:Function,checkQueryAgainstMetrics:Function}}
  */
-export function registerMetric(def) {
-  if (!def || typeof def !== 'object') throw new Error('registerMetric: a definition object is required');
-  const name = String(def.name || '').trim();
-  const expression = String(def.expression || '').trim();
-  if (!name) throw new Error('registerMetric: `name` is required');
-  if (!expression) throw new Error('registerMetric: `expression` is required');
+export function createSemanticRegistry() {
+  const metricMap = new Map();
 
-  const requiredColumns = Array.isArray(def.requiredColumns) && def.requiredColumns.length
-    ? def.requiredColumns.map(c => String(c).toLowerCase())
-    : deriveColumnsFromExpression(expression);
+  /**
+   * Register (or overwrite) a human-authored metric definition. This stores
+   * EXACTLY what it is given — it never infers or invents a definition. `name`
+   * and `expression` are required; everything else is optional provenance.
+   *
+   * @param {object} def
+   * @param {string} def.name          e.g. "net_revenue"
+   * @param {string} def.expression    canonical SQL expression, e.g. "SUM(amount) - SUM(refund_amount)"
+   * @param {string} [def.description] human-readable meaning
+   * @param {string[]} [def.requiredColumns] columns the expression references;
+   *   derived from `expression` when omitted
+   * @param {string} [def.owner]       who defined it (provenance)
+   * @param {number|string} [def.createdAt] when it was defined; defaults to now
+   * @returns {object} the normalized, stored definition (a copy)
+   */
+  function registerMetric(def) {
+    if (!def || typeof def !== 'object') throw new Error('registerMetric: a definition object is required');
+    const name = String(def.name || '').trim();
+    const expression = String(def.expression || '').trim();
+    if (!name) throw new Error('registerMetric: `name` is required');
+    if (!expression) throw new Error('registerMetric: `expression` is required');
 
-  const stored = {
-    name,
-    expression,
-    description: def.description ? String(def.description) : '',
-    requiredColumns,
-    owner: def.owner ? String(def.owner) : '',
-    createdAt: def.createdAt != null ? def.createdAt : Date.now(),
-  };
-  registry.set(name.toLowerCase(), stored);
-  return { ...stored };
+    const requiredColumns = Array.isArray(def.requiredColumns) && def.requiredColumns.length
+      ? def.requiredColumns.map(c => String(c).toLowerCase())
+      : deriveColumnsFromExpression(expression);
+
+    const stored = {
+      name,
+      expression,
+      description: def.description ? String(def.description) : '',
+      requiredColumns,
+      owner: def.owner ? String(def.owner) : '',
+      createdAt: def.createdAt != null ? def.createdAt : Date.now(),
+    };
+    metricMap.set(name.toLowerCase(), stored);
+    return { ...stored };
+  }
+
+  /** All registered metric definitions (copies), in insertion order. */
+  function getRegisteredMetrics() {
+    return [...metricMap.values()].map(m => ({ ...m }));
+  }
+
+  /** A single registered metric by name (case-insensitive), or null. */
+  function getMetric(name) {
+    const m = metricMap.get(String(name || '').toLowerCase());
+    return m ? { ...m } : null;
+  }
+
+  /** Remove a metric by name (case-insensitive). Returns true if one was removed. */
+  function unregisterMetric(name) {
+    return metricMap.delete(String(name || '').toLowerCase());
+  }
+
+  /** Clear the whole registry (used by tests / a fresh session). */
+  function clearMetrics() {
+    metricMap.clear();
+  }
+
+  function checkQueryAgainstMetrics(sql, metrics) {
+    return checkQueryAgainstMetricsWith(getRegisteredMetrics, sql, metrics);
+  }
+
+  return { registerMetric, getRegisteredMetrics, getMetric, unregisterMetric, clearMetrics, checkQueryAgainstMetrics };
 }
 
-/** All registered metric definitions (copies), in insertion order. */
-export function getRegisteredMetrics() {
-  return [...registry.values()].map(m => ({ ...m }));
-}
+const defaultRegistry = createSemanticRegistry();
 
-/** A single registered metric by name (case-insensitive), or null. */
-export function getMetric(name) {
-  const m = registry.get(String(name || '').toLowerCase());
-  return m ? { ...m } : null;
-}
-
-/** Remove a metric by name (case-insensitive). Returns true if one was removed. */
-export function unregisterMetric(name) {
-  return registry.delete(String(name || '').toLowerCase());
-}
-
-/** Clear the whole registry (used by tests / a fresh session). */
-export function clearMetrics() {
-  registry.clear();
-}
+/** Register (or overwrite) a metric in the default (app-wide) registry. See createSemanticRegistry(). */
+export function registerMetric(def) { return defaultRegistry.registerMetric(def); }
+/** All metrics in the default registry (copies), insertion order. */
+export function getRegisteredMetrics() { return defaultRegistry.getRegisteredMetrics(); }
+/** A single metric by name (case-insensitive) from the default registry, or null. */
+export function getMetric(name) { return defaultRegistry.getMetric(name); }
+/** Remove a metric from the default registry. Returns true if removed. */
+export function unregisterMetric(name) { return defaultRegistry.unregisterMetric(name); }
+/** Clear the default registry (tests / fresh session). */
+export function clearMetrics() { defaultRegistry.clearMetrics(); }
 
 // ------------------------------------------------------------
 // Comparator.
@@ -218,16 +255,16 @@ function collectCommentText(sql) {
  *
  * @param {string} sql
  * @param {Array<object>} [metrics] the registry to check against; defaults to
- *   the module's in-memory registry (getRegisteredMetrics()). Passing an
+ *   the module's in-memory registry (the registry's own getRegisteredMetrics()). Passing an
  *   explicit array keeps this fully unit-testable without module state.
  * @returns {Array<object>} flags, each shaped like an analysis-contract finding:
  *   { kind:'metric_definition_mismatch', severity, metric, expected, found,
  *     missingColumns, message }
  */
-export function checkQueryAgainstMetrics(sql, metrics) {
+function checkQueryAgainstMetricsWith(getRegistered, sql, metrics) {
   const flags = [];
   if (typeof sql !== 'string' || !sql.trim()) return flags;
-  const defs = Array.isArray(metrics) ? metrics : getRegisteredMetrics();
+  const defs = Array.isArray(metrics) ? metrics : getRegistered();
   if (!defs.length) return flags;
 
   const byName = new Map();
@@ -290,6 +327,11 @@ export function checkQueryAgainstMetrics(sql, metrics) {
   }
 
   return flags;
+}
+
+/** Check SQL against metrics (defaults to the default registry). See createSemanticRegistry(). */
+export function checkQueryAgainstMetrics(sql, metrics) {
+  return defaultRegistry.checkQueryAgainstMetrics(sql, metrics);
 }
 
 // ============================================================

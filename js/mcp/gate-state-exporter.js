@@ -42,12 +42,17 @@ export const GATE_STATE_VERSION = 1;
  * @param {object|null} [extras.proofRoomSeal] A seal object produced by
  *   sealCheckResult() in verifiable-check-seal.js (or null if none has been
  *   created yet this session), copied verbatim — no re-signing here.
+ * @param {object|null} [extras.metricAccessRules] A MetricAccessRuleRegistry (or its toJSON() output) so the MCP
+ *   `check_metric_access` tool can answer read-authorization questions.
+ * @param {boolean} [extras.metricAccessEnforcement] Mirrors the metricAccessEnforcement flag at export time.
  * @returns {{
  *   version: number,
  *   exportedAt: string,
  *   datasets: Array,
  *   touchLedgerSummary?: object|null,
- *   proofRoomSeal?: object|null
+ *   proofRoomSeal?: object|null,
+ *   metricAccessRules?: object|null,
+ *   metricAccessEnforcement?: boolean
  * }}
  */
 export function buildGateStatePayload(datasets, extras) {
@@ -89,6 +94,17 @@ function buildExtrasFields(extras) {
   }
   if (extras && Object.prototype.hasOwnProperty.call(extras, 'proofRoomSeal')) {
     out.proofRoomSeal = extras.proofRoomSeal || null;
+  }
+  // Roadmap Step 10b: optional governance fields. `metricAccessRules` accepts a
+  // MetricAccessRuleRegistry (anything with toJSON()) or an already-serialized
+  // registry object; `metricAccessEnforcement` mirrors the dark flag. Omitted
+  // entirely when not provided, so existing payloads are byte-identical.
+  if (extras && Object.prototype.hasOwnProperty.call(extras, 'metricAccessRules')) {
+    const r = extras.metricAccessRules;
+    out.metricAccessRules = r && typeof r.toJSON === 'function' ? r.toJSON() : (r || null);
+  }
+  if (extras && Object.prototype.hasOwnProperty.call(extras, 'metricAccessEnforcement')) {
+    out.metricAccessEnforcement = extras.metricAccessEnforcement === true;
   }
   return out;
 }

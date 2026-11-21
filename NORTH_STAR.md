@@ -2561,6 +2561,150 @@ wiring for already-documented capabilities, not new capabilities, so no new capa
 future batches: Diplomacy (195 lines), Drill Floor (222 lines), Proof Room (149 lines), Guarded Copilot
 (131 lines), Join Builder (79 lines), NL->SQL (50 lines), Cleaning Crew (42 lines).
 
+## Test findings (2026-11-21 — breadth stress pass across analytics, transforms, healthcare, DVC & governance)
+
+Roadmap Step 9 part 2 (broaden real-data proof) and Step 10 (governance isolation, access-rule wiring, DVC
+evaluation). Test: `test/realworld-breadth-stress-2026-11.test.mjs` (70 tests, run with
+`npm run test:realworld-breadth-stress`, real DuckDB 1.5.4 via `@duckdb/node-api` where SQL is involved, real
+stdio MCP server for the access check). Every module below was imported and its real exports were called on
+hand-built messy inputs with a known answer key (nulls, NaN, duplicate keys, negative and text amounts,
+trailing-space and mixed-case keys, zero-row tables, SQL-injection and quote-bearing identifiers, PHI in
+headers and free text). Transforms were additionally cross-checked by executing the SQL each one prints
+against DuckDB and comparing with the in-browser result. Expected values were computed by hand first, not
+copied from module output. The 12 bug fixes below were each re-verified by restoring the pre-fix file and
+confirming the regression test fails.
+
+Modules exercised (49), none of which had a Test findings entry before this pass:
+
+- X12 835/837 claims ingestion: `js/ingestion/x12-parser.js`
+- Claims denial triage: `js/provenance/denial-root-cause.js`, `js/provenance/cost-of-bad-data.js`
+- PHI de-identification screening: `js/provenance/deidentification-verifier.js`, `js/privacy/deid-receipt.js`
+- Messy file and API ingestion: `js/ingestion/json-flattener.js`, `js/ingestion/api-feed.js`, `js/ingestion/text-line-parser.js`, `js/dataquality/csv-quarantine.js`
+- PHI guard before LLM prompts: `js/agents/phi-prompt-guard.js`
+- Clinical standards and relational integrity: `js/validation/health-standards.js`, `js/validation/drg-icd-validator.js`, `js/relational/foreign-key-checker.js`, `js/relational/join-coverage-checker.js`, `js/relational/temporal-order-checker.js`, `js/relational/flag-consistency-checker.js`
+- Time, join, reshape and clean-up transforms: `js/transforms/prior-period.js`, `js/transforms/fill-missing.js`, `js/transforms/keep-most-recent.js`, `js/transforms/consecutive-run.js`, `js/transforms/moving-average.js`, `js/transforms/expand-date-range.js`, `js/transforms/first-last-event.js`, `js/transforms/as-of-lookup.js`, `js/transforms/date-range-join.js`, `js/transforms/value-standardizer.js`, `js/transforms/nested-to-rows.js`, `js/transforms/multi-value-counts.js`, `js/intelligence/guided-unpivot.js`, `js/intelligence/repair-recipe-library.js`
+- Data Diplomacy (two organisations disagree about a patient field): `js/diplomacy/diplomacy-claim.js`, `js/diplomacy/reconciliation-engine.js`, `js/diplomacy/diplomacy-approval-gate.js`
+- Governance: contracts, access rules, version control, time machine, MCP gate state: `js/metrics/metric-contracts.js`, `js/metrics/metric-access-rules.js`, `js/validation/semantic-layer.js`, `js/dvc/dvc-store.js`, `js/dvc/dvc-diff.js`, `js/simulation/time-machine.js`, `js/simulation/time-travel-diff.js`, `js/mcp/gate-state-exporter.js`, `js/mcp/dataglow-mcp-server.mjs`
+- Statistics, anomaly detection, drift and narrative honesty: `js/anomaly/spc-control.js`, `js/anomaly/entity-baseline.js`, `js/anomaly/anomaly-timeline.js`, `js/validation/expected-range.js`, `js/drift/freshness-decay.js`, `js/drift/dataset-differ.js`, `js/rigor/narrative-overconfidence-guard.js`
+
+Coverage effect: by the dashboard's parser the share of capabilities with a test-findings entry goes from
+78 of 278 (28.1%) to 125 of 278 (45.0%). Counting only each section's own body (the dashboard parser lets the
+last section run to the end of the file, which inflates both figures) it goes from 25 (9.0%) to 73 (26.3%). A
+capability counts once any one of its files is named, so a few multi-file capabilities are only partly proven.
+
+### Bugs caught and fixed (all with a regression test that fails on the pre-fix code)
+
+1. DVC snapshots crashed on any numeric column of roughly 200k+ rows (`Math.min(...values)` stack overflow in
+   `extractColStats`). Fixed with a loop. `js/dvc/dvc-store.js`.
+2. DVC history order was undefined when two snapshots landed in the same millisecond, which made
+   `snapshotIfChanged` compare against the wrong baseline. Fixed. `js/dvc/dvc-store.js`.
+3. Time machine diffed a new snapshot against an earlier one saved without rows (storage-budget path) as if the
+   earlier table were empty, reporting every row as added. Now reports only what is knowable (row-count and
+   column deltas) and says row-level changes are unavailable. `js/simulation/time-machine.js`.
+4. X12 835/837 parser silently dropped a claim that had no service lines whenever a later claim had them.
+   Fixed in the canonical IIFE in `src/js/bundle.js` and in `canvas/index.html` (`js/ingestion/x12-parser.js` is
+   a documentation stub for that IIFE); `canvas/integrity.manifest.json` size line updated.
+5. Duplicate-claim detection missed duplicates differing only by trailing space or letter case in member id,
+   service date or procedure code. `js/provenance/denial-root-cause.js`.
+6. De-identification verifier skipped real-world headers: "Patient Name", "Date of Birth", "Zip Code",
+   "MemberID", "ZIPCode", "Patient Sex" were not recognised (only snake_case worked), so PHI columns passed as
+   clean. Added a header normaliser used by every pattern. `js/provenance/deidentification-verifier.js`.
+7. JSON flattening left objects nested deeper than the depth limit as live objects, and a BOM-prefixed JSON or
+   NDJSON export failed to parse. `js/ingestion/json-flattener.js`.
+8. API feed: deep objects were not stringified, a bare `host:port/path` URL was rejected as a non-HTTP scheme,
+   and the dataset kept only the first record's columns (fields that first appeared in later records were
+   lost). `js/ingestion/api-feed.js`.
+9. PHI prompt guard: dotted SSNs (`555.44.3333`) were not redacted, and sample values from identifier columns
+   (patient name, dob, mrn, ssn, phone, email, address) were only pattern-scanned instead of dropped, so a name
+   or date of birth could reach the LLM prompt. `js/agents/phi-prompt-guard.js`.
+10. Expand-date-range SQL silently dropped valid open-ended rows when the same batch contained NULL or reversed
+    bounds (DuckDB lateral `generate_series` behaviour). Source is now filtered in a guarded subquery.
+    `js/transforms/expand-date-range.js`.
+11. Moving-average SQL warm-up counted non-null values rather than rows, so SQL and the preview disagreed
+    when nulls fell inside the window. `js/transforms/moving-average.js`.
+12. As-of lookup note named an unmatched fact date as "the earliest lookup row". `js/transforms/as-of-lookup.js`.
+13. Metric access rules failed OPEN on a corrupt saved rule: `allowedAgents` missing, null or a bare string
+    restored as "any agent". Now restores as no agent. `js/metrics/metric-access-rules.js`.
+14. Diplomacy two-key gate used the `in` operator, so a non-party id such as `toString` or `constructor` could
+    approve and could unilaterally reject a request. Now an own-property check.
+    `js/diplomacy/diplomacy-approval-gate.js`.
+15. Reconciliation treated 0.90 vs 0.85 as a 0.05 difference beyond the 0.05 tie threshold (floating point:
+    0.05000000000000004) and picked a winner on a tie. Compared with an epsilon.
+    `js/diplomacy/reconciliation-engine.js`.
+16. Freshness decay with an unparseable as-of date produced status "stale" with a NaN multiplier, which then
+    turned the trust score into NaN. Now "unknown" with multiplier 1. `js/drift/freshness-decay.js`.
+17. SPC `computeCpk` overflowed the stack on 100k+ points (`Math.max(...values)`), and SPC and entity-baseline
+    queries broke on a column name containing a double quote. Both fixed. `js/anomaly/spc-control.js`,
+    `js/anomaly/entity-baseline.js`.
+18. Guided unpivot: DuckDB's UNPIVOT statement omits NULL cells while the in-app transform keeps them, so the
+    printed SQL returned fewer rows than the preview with no explanation. The SQL now carries a comment that
+    states this; behaviour of the in-app transform is unchanged. `js/intelligence/guided-unpivot.js`.
+19. Repair recipe library import dropped rejected records (including recipes carrying row data) silently;
+    `parseLibrary` now also returns `rejected` with index and reasons. `js/intelligence/repair-recipe-library.js`.
+
+Step 10 code delivered alongside: per-session isolated semantic registries (`createSemanticRegistry`,
+`js/validation/semantic-layer.js`), an isolated access-rule registry and a SQL read-gate
+(`evaluateSqlMetricAccess`, `checkMetricAccessFromGateState`), the MCP tool `check_metric_access` reading rules
+from the exported gate state, and the new flag `metricAccessEnforcement` (default off).
+
+### Known limitations found and NOT fixed (pinned or documented in the test)
+
+- Per-entity baselines and the anomaly timeline include the outlier in its own baseline. With population
+  standard deviation the largest possible z-score is sqrt(n-1), so an entity with 10 or fewer observations can
+  never exceed 3 sigma (`js/anomaly/entity-baseline.js`) and a column with 7 or fewer rows can never exceed 2.5
+  (`js/anomaly/anomaly-timeline.js`). A $90,000 invoice among eight $300 invoices is not flagged.
+- Dataset differ and DVC diff do not flag a mean that moves away from exactly 0 (relative change undefined).
+  `js/drift/dataset-differ.js`, `js/dvc/dvc-diff.js`.
+- Freshness decay treats future-dated data as fresh. `js/drift/freshness-decay.js`.
+- Reconciliation does not verify claim seals itself: a caller that skips `verifyClaimSeal` can be fooled by a
+  forged confidence. The approval gate accepts an unresolved verdict (the sealed record then says
+  `resolved:false`). `js/diplomacy/reconciliation-engine.js`, `js/diplomacy/diplomacy-approval-gate.js`.
+- Time machine archive export embeds raw rows, so exporting an archive exports any PHI in the table (the DVC
+  store never does). `js/simulation/time-machine.js`. Row diff collapses duplicate keys (last wins).
+  `js/simulation/time-travel-diff.js`.
+- Fill-missing treats only null and empty string as blank (whitespace-only is a value); keep-most-recent and
+  first/last group keys are exact (`m1 ` and `M1` stay separate) and ties are deterministic but arbitrary; the
+  prior-period SQL emits periods with no readable metric as NULL while the preview omits them; as-of lookup with
+  two rows effective the same day picks one arbitrarily (it reports the count). The corresponding modules are
+  `js/transforms/fill-missing.js`, `js/transforms/keep-most-recent.js`, `js/transforms/first-last-event.js`,
+  `js/transforms/prior-period.js`, `js/transforms/as-of-lookup.js`.
+- Text-line parser reports a phantom blank row for a trailing newline and treats bare CR oddly; both are pinned by
+  existing tests and mirrored in the bundle, so left as is. `js/ingestion/text-line-parser.js`.
+- X12 parser keeps only the first CAS adjustment pair per service line (known, not fixed).
+- PHI prompt guard does not redact phone numbers or free-text dates inside prose. Relational temporal-rule header
+  matching needs exact snake_case names. Flag-consistency does not flag `deceased=1` with a NULL disposition.
+- `canvas/index.html` is authoritative and inlines its own copies of these modules, so every fix above was also
+  applied there: the three tracked transforms by re-running `inject_transforms.py`, the other modules by applying
+  the same diff to their inlined block, and the two hand-written ES5 copies of the JSON flattener and API feed by
+  porting the fix by hand. The canvas integrity manifest was re-recorded. Only the untracked inlined copies are
+  not covered by the integrity gate, so a future edit to one of them will not be caught by it.
+  The access-rule module, gate-state exporter and MCP server are not inlined in the canvas.
+- DuckDB-WASM in the browser may differ from the Node DuckDB 1.5.4 used here for the SQL cross-checks.
+
+### DVC evaluation (Roadmap Step 10c)
+
+Verdict: do not add git-style multi-branch row storage. DataGlow already ships two complementary layers, and
+the earlier backlog line "not present in DataGlow" was inaccurate.
+
+1. Metadata layer (PHI-safe, portable): `js/dvc/dvc-store.js` and `js/dvc/dvc-diff.js` (UI in dvc-ui.js and the
+   DVC tab) snapshot schema plus a statistical fingerprint per dataset version. No raw rows are ever copied
+   into a snapshot or its JSON export (proved above with an SSN-bearing column). It supports labelled commits,
+   timeline, merge of exported stores, duplicate detection, rollback metadata and a risk-rated diff
+   (breaking / warn / ok).
+2. Row layer (local, undo-capable): `js/simulation/time-machine.js` and `js/simulation/time-travel-diff.js`
+   store content-hashed snapshots with embedded rows in IndexedDB (not DuckDB), with a storage-budget guard that
+   saves a hash-only snapshot (`rowsOmitted`) when rows would not fit, plus a key-based row diff. Its archive
+   export includes raw rows, which is a PHI exposure to flag in the UI before download.
+3. Deterministic replay: repair-ledger.js and the repair recipe library record the steps (never the rows), so a
+   cleaning run can be replayed on the next extract instead of storing every intermediate table.
+
+Why not full branch/commit row storage: a 100 MB+ dataset kept in several branches multiplies browser memory and
+OPFS use per branch, and a row-bearing commit log would make every export a PHI risk. The right shape is the one
+already present: portable metadata commits for governance and audit, row-level snapshots only for local undo
+within a storage budget, and replayable recipes for reproducibility. Remaining gaps, in order of value: show the
+PHI warning on time-machine archive export; let a metadata commit reference a recipe id so "what changed" and
+"how to redo it" travel together; flag a mean moving away from 0 in the diff.
+
 ## Enterprise-readiness scoping refresh + licensing decision (2026-09-23)
 
 Refresh of the 2026-07-19 enterprise-readiness audit (see `enterprise_readiness_scoping_2026-09-23.md`
@@ -2980,8 +3124,15 @@ below when Readiness Gate ships.
    four run paths named in the original concept are now genuinely wired — nothing further scoped this
    round beyond the flag description's own honest update to match.
 2. Machine-readable Metric Contracts extended with agent-access rules (who/what is authorized to query
-   a given metric) — partially exists, could be deepened.
-3. Git-for-data version control (branch/commit/diff/rollback for datasets) — not present in DataGlow.
+   a given metric) — rules store, SQL read-gate evaluator, gate-state export and the MCP tool
+   `check_metric_access` now exist (Step 10b), all dark behind the `metricAccessEnforcement` flag (default
+   false). Not yet wired: the in-app NL-to-SQL and Query Sentinel call sites, the app passing its registry into
+   the gate-state export, and a UI for editing rules.
+3. Git-for-data version control (branch/commit/diff/rollback for datasets) — a partial equivalent already ships:
+   PHI-safe schema and statistical-fingerprint commits (`js/dvc/dvc-store.js`, `js/dvc/dvc-diff.js`) plus
+   row-level snapshots and diff for local undo (`js/simulation/time-machine.js`,
+   `js/simulation/time-travel-diff.js`). Full git-style multi-branch row storage was evaluated and not
+   recommended (memory and PHI cost); see the DVC evaluation in the 2026-11-21 test findings.
 4. Agent audit-trail standard (IETF draft) — structured, SOC2/EU-AI-Act-ready logging of agent actions.
 5. Cross-org clean-room-style privacy-preserving joins, generalized beyond the federated-learning module
    already in `js/federated/`.

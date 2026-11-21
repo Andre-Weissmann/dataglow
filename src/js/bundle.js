@@ -21159,6 +21159,22 @@ var InstantInsight = (function () {
       var header = { payerName: '', checkNum: '', checkDate: '', checkAmt: '' };
       var currentClaim = null;
 
+      /* A claim with no SVC/SVP lines (claim-level-only remittance, or a fully
+         denied claim) still gets one row. Previously only the LAST claim of a
+         file with zero service lines was emitted, and claim-level claims
+         followed by a claim WITH service lines were silently dropped. */
+      function flushClaim835() {
+        if (currentClaim && !currentClaim.hasSvc) {
+          rows.push([
+            header.payerName, header.checkNum, header.checkDate, header.checkAmt,
+            currentClaim.claimId, currentClaim.claimStatus,
+            currentClaim.chargeAmt, currentClaim.paidAmt, currentClaim.patientResp,
+            currentClaim.adjCode, currentClaim.adjAmt, '', '', ''
+          ]);
+        }
+        currentClaim = null;
+      }
+
       for (var i = 0; i < segments.length; i++) {
         var seg = segments[i];
         var id  = seg[0];
@@ -21166,10 +21182,11 @@ var InstantInsight = (function () {
         if (id === 'BPR') { header.checkAmt = seg[2] || ''; header.checkDate = seg[16] || ''; }
         if (id === 'TRN') { header.checkNum = seg[2] || ''; }
         if (id === 'CLP') {
+          flushClaim835();
           currentClaim = {
             claimId: seg[1] || '', claimStatus: seg[2] || '',
             chargeAmt: seg[3] || '', paidAmt: seg[4] || '',
-            patientResp: seg[5] || '', adjCode: '', adjAmt: ''
+            patientResp: seg[5] || '', adjCode: '', adjAmt: '', hasSvc: false
           };
         }
         if (id === 'CAS' && currentClaim) {
@@ -21177,6 +21194,7 @@ var InstantInsight = (function () {
           currentClaim.adjAmt  = seg[3] || '';
         }
         if ((id === 'SVC' || id === 'SVP') && currentClaim) {
+          currentClaim.hasSvc = true;
           rows.push([
             header.payerName, header.checkNum, header.checkDate, header.checkAmt,
             currentClaim.claimId, currentClaim.claimStatus,
@@ -21186,14 +21204,7 @@ var InstantInsight = (function () {
           ]);
         }
       }
-      if (rows.length === 0 && currentClaim) {
-        rows.push([
-          header.payerName, header.checkNum, header.checkDate, header.checkAmt,
-          currentClaim.claimId, currentClaim.claimStatus,
-          currentClaim.chargeAmt, currentClaim.paidAmt, currentClaim.patientResp,
-          currentClaim.adjCode, currentClaim.adjAmt, '', '', ''
-        ]);
-      }
+      flushClaim835();
       return {
         columns: [
           { name: 'payer_name',     type: 'STR'   },
@@ -21222,6 +21233,21 @@ var InstantInsight = (function () {
       var payer      = { name: '', payerId: '' };
       var currentClaim = null;
 
+      /* Same fix as 835: a CLM with no SV1/SV2 line still yields one row. */
+      function flushClaim837() {
+        if (currentClaim && !currentClaim.hasSvc) {
+          rows.push([
+            subscriber.lastName + (subscriber.firstName ? ', ' + subscriber.firstName : ''),
+            subscriber.memberId, subscriber.dob, subscriber.gender,
+            provider.npi, provider.name, payer.name, payer.payerId,
+            currentClaim.claimId, currentClaim.totalCharge,
+            currentClaim.serviceDate, currentClaim.diagCode1,
+            '', '', '', '', currentClaim.facilityCode
+          ]);
+        }
+        currentClaim = null;
+      }
+
       for (var i = 0; i < segments.length; i++) {
         var seg = segments[i];
         var id  = seg[0];
@@ -21237,10 +21263,11 @@ var InstantInsight = (function () {
         if (id === 'NM1' && (seg[1] === 'PR' || seg[1] === '40')) { payer.name = seg[3] || ''; payer.payerId = seg[10] || seg[9] || ''; }
         if (id === 'DMG' && seg[1] === 'D8') { subscriber.dob = seg[2] || ''; subscriber.gender = seg[3] || ''; }
         if (id === 'CLM') {
+          flushClaim837();
           currentClaim = {
             claimId: seg[1] || '', totalCharge: seg[2] || '',
             facilityCode: seg[5] ? seg[5].split(':')[0] : '',
-            serviceDate: '', diagCode1: ''
+            serviceDate: '', diagCode1: '', hasSvc: false
           };
         }
         if (id === 'DTP' && seg[1] === '472' && currentClaim) { currentClaim.serviceDate = seg[3] || ''; }
@@ -21249,6 +21276,7 @@ var InstantInsight = (function () {
           currentClaim.diagCode1 = hparts[1] || seg[1];
         }
         if ((id === 'SV1' || id === 'SV2') && currentClaim) {
+          currentClaim.hasSvc = true;
           var svcField = seg[1] || '';
           var svcParts = svcField.split(':');
           var procCode = svcParts[1] || svcField;
@@ -21263,16 +21291,7 @@ var InstantInsight = (function () {
           ]);
         }
       }
-      if (rows.length === 0 && currentClaim) {
-        rows.push([
-          subscriber.lastName + (subscriber.firstName ? ', ' + subscriber.firstName : ''),
-          subscriber.memberId, subscriber.dob, subscriber.gender,
-          provider.npi, provider.name, payer.name, payer.payerId,
-          currentClaim.claimId, currentClaim.totalCharge,
-          currentClaim.serviceDate, currentClaim.diagCode1,
-          '', '', '', '', currentClaim.facilityCode
-        ]);
-      }
+      flushClaim837();
       return {
         columns: [
           { name: 'patient_name',   type: 'STR'   },

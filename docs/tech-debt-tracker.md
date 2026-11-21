@@ -273,7 +273,13 @@ Newest entries go at the bottom of **Entries**.
   routinely written multiple equivalent ways in practice; not worth a SQL-AST
   dependency pre-emptively. Also in scope for a later batch: the registry is
   in-memory only (resets on reload), so there is no portable/exportable metric
-  catalog yet.
+  catalog yet. **Session isolation (2026-11-21, Roadmap Step 10a):** the metric
+  `Map` is no longer a module-level singleton; `createSemanticRegistry()` returns
+  an independent registry, and the module-level exports delegate to one
+  `defaultRegistry`, so existing callers are unchanged. Proven by
+  `test/semantic-layer-registry-isolation.test.mjs`. (The persistence bridge
+  helpers `hydrateFromRecords` / `exportMetricsToJson` / `importMetricsFromJson`
+  still target the default registry.)
 - **Date:** 2026-07-11
 - **Severity:** low
 - **Area:** `js/validation/semantic-layer.js`

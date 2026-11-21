@@ -62,8 +62,11 @@ function flattenObj(obj, maxDepth, prefix = '', depth = 0) {
     const key = prefix ? `${prefix}.${k}` : k;
     if (isPlainObj(v) && depth < maxDepth) {
       Object.assign(out, flattenObj(v, maxDepth, key, depth + 1));
-    } else if (Array.isArray(v)) {
-      out[key] = JSON.stringify(v); // arrays in leaf position → string
+    } else if (Array.isArray(v) || isPlainObj(v)) {
+      // Arrays in leaf position, and objects nested deeper than maxDepth, are
+      // JSON-stringified (as documented). Previously the deep object was kept
+      // as a live object, which DuckDB ingests as "[object Object]".
+      out[key] = JSON.stringify(v);
     } else {
       out[key] = v ?? null;
     }
@@ -94,6 +97,7 @@ function isPlainObj(v) {
  * Returns { parsed, isNdjson, error }.
  */
 export function parseJsonOrNdjson(text) {
+  if (typeof text === 'string' && text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // Excel/Windows exports prepend a BOM
   if (typeof text !== 'string' || text.trim() === '') {
     return { parsed: null, isNdjson: false, error: 'Empty input' };
   }

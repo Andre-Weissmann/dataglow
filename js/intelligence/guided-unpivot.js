@@ -235,6 +235,16 @@ export function buildUnpivotSQL(config, sourceRelation) {
   } else {
     sql = unpivotExpr;
   }
+  if (!config.dropNullValues) {
+    // DuckDB's UNPIVOT statement silently omits NULL cells, but the in-app
+    // transform (the primary apply path) keeps them as NULL-valued rows unless
+    // dropNullValues is set. Say so, rather than let the two row counts disagree
+    // without explanation.
+    sql = '-- Note: DuckDB UNPIVOT omits NULL cells. The preview keeps them as NULL rows\n'
+      + '-- (one row per input row per unpivoted column), so this query returns fewer\n'
+      + '-- rows by exactly the number of blank cells. Set "drop blanks" to make them match.\n'
+      + sql;
+  }
   return { ok: true, sql: sql, errors: (v.errors || []) };
 }
 

@@ -91,9 +91,23 @@ export const HIPAA_SAFE_HARBOR = [
     namePattern: /(^|_)(id|uuid|guid|identifier|code|token|api_?key|apikey|ref|reference)($|_)/i },
 ];
 
+// Column-name normaliser used ONLY for pattern tests. Real headers arrive as
+// "Patient Name", "Date of Birth", "MemberID", "ZIPCode", "zip-code" - the name
+// patterns below are written against snake_case tokens, so without this a
+// header with spaces/hyphens/camelCase silently slips past every name check.
+export function normColName(name) {
+  return String(name == null ? '' : name)
+    .trim()
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[\s\-.\/]+/g, '_')
+    .replace(/_+/g, '_')
+    .toLowerCase();
+}
+
 // A column matches the special "age over 89" clause of category 3.
 function ageOver89(colName, values) {
-  if (!/(^|_)age($|_)/i.test(colName)) return false;
+  if (!/(^|_)age($|_)/i.test(normColName(colName))) return false;
   return nonNull(values).some(v => {
     const num = Number(v);
     return Number.isFinite(num) && num > 89;
@@ -116,7 +130,7 @@ export function checkSafeHarbor({ columns = [], samples = {} } = {}) {
       const name = c.name;
       const values = samples[name];
       const reasons = [];
-      if (cat.namePattern && cat.namePattern.test(name)) reasons.push(`column name matches ${cat.label.toLowerCase()}`);
+      if (cat.namePattern && cat.namePattern.test(normColName(name))) reasons.push(`column name matches ${cat.label.toLowerCase()}`);
       if (cat.valuePattern) {
         const { count, frac } = valueMatchFraction(values, cat.valuePattern);
         if (count > 0 && frac >= VALUE_THRESHOLD) reasons.push(`sampled values look like ${cat.label.toLowerCase()}`);
@@ -136,7 +150,7 @@ export function checkSafeHarbor({ columns = [], samples = {} } = {}) {
   const otherCat = HIPAA_SAFE_HARBOR.find(c => c.id === 'other');
   for (const c of cols) {
     if (matchedAnyCategory.has(c.name)) continue;
-    if (otherCat.namePattern.test(c.name)) {
+    if (otherCat.namePattern.test(normColName(c.name))) {
       other.matchedColumns.push({ column: c.name, reason: 'column name looks like a unique identifier/code' });
     }
   }
@@ -172,7 +186,7 @@ export function scoreReidentificationRisk({ columns = [], samples = {}, rowCount
   const cols = Array.isArray(columns) ? columns : [];
   const present = [];
   for (const q of QUASI) {
-    if (cols.some(c => q.pattern.test(c.name)) && !present.includes(q.id)) present.push(q.id);
+    if (cols.some(c => q.pattern.test(normColName(c.name))) && !present.includes(q.id)) present.push(q.id);
   }
 
   let score = Math.min(present.length * 18, 90);
@@ -342,7 +356,7 @@ export const KANON_SAMPLE_LIMIT = 500; // max rows sampled for the check
 
 // Column name patterns that indicate a quasi-identifier even without a full
 // de-id report. Kept aligned with scoreReidentificationRisk()'s quasi-id list.
-const QUASI_COL_PATTERN = /(zip|postal|city|county|geo|location)|(dob|birth_date|date_of_birth|\bage\b)|(^|\b)(sex|gender)($|\b)|(race|ethnicity|ethnic)/i;
+const QUASI_COL_PATTERN = /(zip|postal|city|county|geo|location)|(dob|birth_date|date_of_birth|(^|_)age($|_))|(^|_)(sex|gender)($|_)|(^|_)(race|ethnicity|ethnic)($|_)/i;
 
 /**
  * Pure k-anonymity check over sampled rows.
@@ -431,13 +445,13 @@ export async function runKAnonymityCheck(table, cols, engine, deidReport = null)
     const presentIds = new Set(deidReport.reidentification.present);
     if (presentIds.size > 0) {
       quasiCols = allCols
-        .filter(c => QUASI_COL_PATTERN.test(c.name || ''))
+        .filter(c => QUASI_COL_PATTERN.test(normColName(c.name || '')))
         .map(c => c.name);
     }
   }
   // Always union with column-name heuristic catches (handles case where no report).
   const heuristic = allCols
-    .filter(c => QUASI_COL_PATTERN.test(c.name || ''))
+    .filter(c => QUASI_COL_PATTERN.test(normColName(c.name || '')))
     .map(c => c.name);
   quasiCols = [...new Set([...quasiCols, ...heuristic])];
 

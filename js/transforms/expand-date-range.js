@@ -322,6 +322,18 @@ export function buildExpandDateRangeSQL(config, sourceRelation) {
       + (inclusive ? '1' : '0') + ' AS ' + quoteIdent(dayColumnName(config) + '_span')
     : '';
 
+  // Rows that cannot expand (no start, no usable end, or an end before the
+  // start) are removed BEFORE the lateral generate_series. Relying on the
+  // function to return nothing for them is not safe: with DuckDB 1.5.x a batch
+  // that mixes NULL / reversed bounds with valid ones silently drops other
+  // valid rows (an open-ended range vanished in the answer-key test).
+  const innerEnd = asAt
+    ? 'COALESCE(' + e + ', CAST(' + quoteLiteral(formatISODate(asAt)) + ' AS DATE))'
+    : e;
+  const innerUpper = inclusive ? innerEnd : '(' + innerEnd + ' - INTERVAL 1 DAY)';
+  const guard = 'WHERE ' + s + ' IS NOT NULL AND ' + innerEnd + ' IS NOT NULL AND CAST(' + innerUpper
+    + ' AS DATE) >= CAST(' + s + ' AS DATE)';
+
   const lines = [
     '-- One row per calendar day between ' + s + ' and ' + e + '.',
     '-- Every other column is repeated on each day, so any total already computed',
@@ -332,7 +344,7 @@ export function buildExpandDateRangeSQL(config, sourceRelation) {
     'SELECT',
     '  src.*,',
     '  CAST(d.' + day + ' AS DATE) AS ' + day + idxCol + spanCol,
-    'FROM ' + t + ' AS src',
+    'FROM (SELECT * FROM ' + t + ' ' + guard + ') AS src',
     'CROSS JOIN LATERAL generate_series(',
     '  CAST(src.' + s + ' AS DATE),',
     '  CAST(' + upper + ' AS DATE),',
@@ -346,12 +358,12 @@ export function buildExpandDateRangeSQL(config, sourceRelation) {
     lines.push('-- rather than current_date so this query gives the same answer next month.');
   } else {
     lines.push('');
-    lines.push('-- Rows with no end date produce nothing here, because generate_series with a');
-    lines.push('-- NULL bound returns no rows. They are counted and named in the notes rather');
-    lines.push('-- than being run to today, which would change the answer on every rerun.');
+    lines.push('-- Rows with no end date are filtered out by the WHERE above, not run to today,');
+    lines.push('-- which would change the answer on every rerun. They are counted and named in');
+    lines.push('-- the notes.');
   }
-  lines.push('-- A range whose end is before its start also produces nothing, which is the');
-  lines.push('-- same refusal the computed result makes.');
+  lines.push('-- A range whose end is before its start is filtered out the same way, which is');
+  lines.push('-- the same refusal the computed result makes.');
 
   return { ok: true, sql: lines.join('\n') };
 }

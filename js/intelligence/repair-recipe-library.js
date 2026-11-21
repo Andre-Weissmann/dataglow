@@ -184,11 +184,16 @@ export function parseLibrary(json) {
   var raw = Array.isArray(o) ? o : (Array.isArray(o.records) ? o.records : null);
   if (!raw) return { ok: false, error: 'Library has no records array.' };
   var records = [];
+  // Records that fail validation (including any that carry row data - a privacy
+  // violation) are not imported, but they are no longer dropped silently: the
+  // caller gets the index and reasons so an import can say "2 of 5 skipped".
+  var rejected = [];
   for (var i = 0; i < raw.length; i++) {
     var v = validateRecord(raw[i]);
     if (v.ok) records.push(raw[i]);
+    else rejected.push({ index: i, errors: v.errors });
   }
-  return { ok: true, records: records };
+  return { ok: true, records: records, rejected: rejected };
 }
 
 // ---- match scoring ----------------------------------------------------------

@@ -153,6 +153,32 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:semanticlayer
+      - run: npm run test:semanticlayer-isolation
+
+  metric-access-enforcement:
+    name: Metric access rules + MCP read-gate (Step 10b)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:metricaccessrules
+      - run: npm run test:metricaccessenforcement
+
+  realworld-breadth-stress:
+    name: Real-world breadth stress (claims, transforms, governance, stats)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run test:realworld-breadth-stress
 
   shipped-bug-regressions:
     name: shipped-code bug regressions

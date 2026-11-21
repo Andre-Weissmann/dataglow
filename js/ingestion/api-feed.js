@@ -26,7 +26,10 @@ export function validateFeedUrl(url) {
   }
   const trimmed = url.trim();
   let parsed;
-  try { parsed = new URL(trimmed); } catch (_) {
+  // "localhost:8080/x" and "api.example.com:8443/x" parse as a URL whose
+  // scheme is the hostname; treat a bare host:port as a host, not a scheme.
+  const bareHostPort = !/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) && /^[A-Za-z0-9.-]+:\d{1,5}(\/|$|\?|#)/.test(trimmed);
+  try { parsed = new URL(bareHostPort ? 'https://' + trimmed : trimmed); } catch (_) {
     // Try adding https://
     try { parsed = new URL('https://' + trimmed); }
     catch (_2) { return { valid: false, error: 'Invalid URL format', normalized: null }; }
@@ -86,7 +89,7 @@ function flattenObjShallow(obj, maxDepth, prefix = '', depth = 0) {
   for (const [k, v] of Object.entries(obj)) {
     const key = prefix ? `${prefix}.${k}` : k;
     if (isPlainObj(v) && depth < maxDepth) Object.assign(out, flattenObjShallow(v, maxDepth, key, depth + 1));
-    else if (Array.isArray(v)) out[key] = JSON.stringify(v);
+    else if (Array.isArray(v) || isPlainObj(v)) out[key] = JSON.stringify(v);
     else out[key] = v ?? null;
   }
   return out;
@@ -122,7 +125,10 @@ export function buildPollSchedule(intervalMs, method, url, headers) {
  */
 export function buildFeedDataset(rows, url, pollSchedule, fetchedAt) {
   return {
-    columns: rows.length > 0 ? Object.keys(rows[0]) : [],
+    // Union of keys across ALL rows (first-seen order). Using only rows[0]
+    // silently dropped any field that first appears in a later record, which is
+    // normal for sparse API data.
+    columns: unionColumns(rows),
     rows,
     meta: {
       source: url,
@@ -132,4 +138,14 @@ export function buildFeedDataset(rows, url, pollSchedule, fetchedAt) {
       note: `Live API feed from ${url}. ${pollSchedule.isOneShot ? 'One-time fetch.' : 'Auto-refreshes ' + pollSchedule.label + '.'}`
     }
   };
+}
+
+function unionColumns(rows) {
+  const seen = new Set();
+  const cols = [];
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (!isPlainObj(r)) continue;
+    for (const k of Object.keys(r)) if (!seen.has(k)) { seen.add(k); cols.push(k); }
+  }
+  return cols;
 }
