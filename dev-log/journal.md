@@ -7,6 +7,13 @@ and inspectable — the user can read it and diff it like any other file. Newest
 
 ---
 
+## [2026-11-21 15:28 CT] Roadmap Step 8 Complete — Live WebR Verification & Enable polyglotWriteback (PR #716)
+
+- **Asked:** Turn on `polyglotWriteback` to complete Step 8 ("Save Python and R tables back into SQL").
+- **Verified & Fixed:** Executed `R_WRITEBACK_SETUP` in real WebR 0.4.2 WASM before flipping the flag, catching a base-R `paste0("\"", character(0), "\"")` recycling edge case that emitted `[""]` instead of `[]` on 0-row character columns; added explicit `length == 0L` guards in `.dataglow_json_str` and `.dataglow_json_col`, re-verified in live WebR, and flipped `polyglotWriteback` to `true`.
+- **Outcome:** Shipped live via PR #716; 186 flags now live, 4 flags dark.
+- **Lesson for next time:** Always execute embedded R/Python runtime snippets in real WebR/Pyodide WASM before promoting their flag — base R's `paste0` zero-length recycling is invisible to JS string-inspection tests.
+
 ## [2026-11-21 13:00 CT] Roadmap Step 6 Complete — Enable glowCanvasLiveRefresh (PR #715)
 
 - **Asked:** Turn on `glowCanvasLiveRefresh` to complete Step 6 ("Live and API feed refresh on Glow Canvas").

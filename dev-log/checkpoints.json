@@ -406,5 +406,41 @@
       "notTouched": "Only glowCanvasLiveRefresh flipped to true following explicit user confirmation of Step 6; auto-polling stays off unless a user selects an interval. Remaining 5 dark flags (glowCanvasStorytelling, polyglotWriteback, metricAccessEnforcement, serverOffload, videoTranscription) remain false."
     },
     "outcome": "shipped-live"
+  },
+  {
+    "id": "chk_20261121_4",
+    "startedAt": "2026-11-21T21:19:00Z",
+    "endedAt": "2026-11-21T21:28:00Z",
+    "trigger": "run-end",
+    "title": "Roadmap Step 8 complete — verify R helper in live WebR, fix 0-row character recycling, and enable polyglotWriteback",
+    "before": {
+      "openPRs": 0,
+      "openIssues": 22,
+      "orphanBranches": 4,
+      "darkFlags": 5,
+      "ciStatus": "success"
+    },
+    "after": {
+      "openPRs": 0,
+      "openIssues": 22,
+      "orphanBranches": 4,
+      "darkFlags": 4,
+      "ciStatus": "success"
+    },
+    "diffstat": {
+      "filesChanged": 7,
+      "additions": 52,
+      "deletions": 6
+    },
+    "commits": [
+      "dad804b"
+    ],
+    "prUrl": "https://github.com/Andre-Weissmann/dataglow/pull/716",
+    "verification": {
+      "testsRun": 279,
+      "testsPassed": 279,
+      "notTouched": "Verified R_WRITEBACK_SETUP in real WebR 0.4.2 WASM before flipping polyglotWriteback to true, catching and fixing base-R paste0 recycling on 0-row character columns. Remaining 4 dark flags (glowCanvasStorytelling, metricAccessEnforcement, serverOffload, videoTranscription) remain false."
+    },
+    "outcome": "shipped-live"
   }
 ]
