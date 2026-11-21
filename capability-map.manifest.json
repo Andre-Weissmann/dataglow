@@ -3871,6 +3871,22 @@
       "status": "shipped"
     },
     {
+      "id": "polyglot-writeback",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Polyglot Workbench",
+      "name": "Save Python and R tables back into DuckDB (dataglow.save_df / dataglow_save_df)",
+      "files": [
+        "js/polyglot/polyglot-writeback.js"
+      ],
+      "relatedFlags": [
+        "polyglotWriteback"
+      ],
+      "status": "behind-flag"
+    },
+    {
       "id": "data-diplomacy-loader",
       "platforms": [
         "browser",

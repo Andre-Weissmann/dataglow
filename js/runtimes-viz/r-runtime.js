@@ -4,6 +4,13 @@
 
 import { state } from '../app-shell/state.js';
 import * as engine from '../app-shell/duckdb-engine.js';
+import { isEnabled } from '../build/build-flags.js';
+import { registerObject } from '../app-shell/object-space.js';
+import * as provenance from '../provenance/provenance.js';
+import {
+  materializeWritebackTables,
+  buildRuntimeWritebackDeps,
+} from '../polyglot/polyglot-writeback.js';
 
 let loadPromise = null;
 let jsonlitePromise = null;
@@ -76,6 +83,93 @@ async function bitmapsToDataUrls(images) {
   return urls;
 }
 
+// ------------------------------------------------------------
+// Roadmap Step 8 (polyglotWriteback): dataglow_save_df(name, df)
+// ------------------------------------------------------------
+// Only evaluated into the R session when the flag is on. save_df stages each
+// data.frame in a private environment; after the user's code finishes WITHOUT
+// error the JS side collects them as column-oriented JSON via a small base-R
+// serializer (no jsonlite dependency, so it also works in Air-Gap / offline
+// sessions where R packages are never fetched) and hands them to the shared
+// materializer. Factors/Dates/POSIXct become character/ISO; numeric, integer,
+// logical and NA are preserved; NaN/Inf become null.
+export const R_WRITEBACK_SETUP = String.raw`
+.dataglow_saved_tables <- new.env(parent = emptyenv())
+dataglow_save_df <- function(name, df) {
+  if (!is.character(name) || length(name) != 1L || is.na(name)) {
+    stop("dataglow_save_df(name, df): name must be a single string.")
+  }
+  if (!grepl("^[A-Za-z_][A-Za-z0-9_]{0,62}$", trimws(name))) {
+    stop(paste0("dataglow_save_df: invalid table name '", name, "'. Use letters, digits and underscores only (max 63 chars)."))
+  }
+  df <- as.data.frame(df, stringsAsFactors = FALSE)
+  if (ncol(df) == 0L) stop("dataglow_save_df: the data.frame has 0 columns.")
+  if (anyDuplicated(tolower(names(df)))) stop("dataglow_save_df: duplicate column names; rename them before saving.")
+  for (i in seq_along(df)) {
+    col <- df[[i]]
+    if (is.factor(col)) {
+      df[[i]] <- as.character(col)
+    } else if (inherits(col, "Date")) {
+      df[[i]] <- format(col, "%Y-%m-%d")
+    } else if (inherits(col, "POSIXt")) {
+      df[[i]] <- format(as.POSIXct(col), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+    } else if (is.list(col)) {
+      stop(paste0("dataglow_save_df: column '", names(df)[i], "' is a list column; flatten it first."))
+    } else if (!(is.numeric(col) || is.logical(col) || is.character(col))) {
+      df[[i]] <- as.character(col)
+    }
+  }
+  assign(trimws(name), df, envir = .dataglow_saved_tables)
+  invisible(NULL)
+}
+.dataglow_json_str <- function(x) {
+  x <- enc2utf8(as.character(x))
+  x <- gsub("\\", "\\\\", x, fixed = TRUE)
+  x <- gsub("\"", "\\\"", x, fixed = TRUE)
+  x <- gsub("\n", "\\n", x, fixed = TRUE)
+  x <- gsub("\r", "\\r", x, fixed = TRUE)
+  x <- gsub("\t", "\\t", x, fixed = TRUE)
+  x <- gsub("[[:cntrl:]]", "", x)
+  paste0("\"", x, "\"")
+}
+.dataglow_json_col <- function(col) {
+  if (is.logical(col)) {
+    v <- ifelse(is.na(col), "null", ifelse(col, "true", "false"))
+  } else if (is.integer(col)) {
+    v <- ifelse(is.na(col), "null", as.character(col))
+  } else if (is.numeric(col)) {
+    v <- ifelse(is.finite(col), sprintf("%.17g", col), "null")
+  } else {
+    v <- .dataglow_json_str(col)
+    v[is.na(col)] <- "null"
+  }
+  paste0("[", paste(v, collapse = ","), "]")
+}
+.dataglow_collect_saves <- function() {
+  nms <- ls(.dataglow_saved_tables, all.names = TRUE)
+  parts <- vapply(nms, function(n) {
+    df <- get(n, envir = .dataglow_saved_tables)
+    cn <- names(df)
+    cols <- vapply(seq_along(df), function(i) {
+      paste0(.dataglow_json_str(cn[i]), ":", .dataglow_json_col(df[[i]]))
+    }, character(1))
+    paste0(.dataglow_json_str(n), ":{\"names\":[", paste(.dataglow_json_str(cn), collapse = ","),
+           "],\"columns\":{", paste(cols, collapse = ","), "}}")
+  }, character(1))
+  rm(list = nms, envir = .dataglow_saved_tables)
+  paste0("{", paste(parts, collapse = ","), "}")
+}
+`;
+
+// Pull whatever dataglow_save_df staged out of the R session as pending saves
+// ({ name, rows: <columnar payload>, language: 'r' }). `webR` is injected so this
+// is testable with a stub.
+export async function collectRSaves(webR) {
+  const json = await webR.evalRString('.dataglow_collect_saves()');
+  const parsed = JSON.parse(json || '{}');
+  return Object.entries(parsed).map(([name, payload]) => ({ name, rows: payload, language: 'r' }));
+}
+
 export function initWebRRuntime(onStatus) {
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
@@ -124,7 +218,7 @@ export function initWebRRuntime(onStatus) {
   return loadPromise;
 }
 
-export async function runR(code) {
+export async function runR(code, { onTableSaved } = {}) {
   const webR = state.webR;
   if (!webR) throw new Error('R runtime not ready yet.');
 
@@ -182,7 +276,8 @@ export async function runR(code) {
   `;
 
   try {
-    await webR.evalRVoid(bridgeSetup);
+    const writeback = isEnabled('polyglotWriteback');
+    await webR.evalRVoid(writeback ? bridgeSetup + R_WRITEBACK_SETUP : bridgeSetup);
     const shelter = await new webR.Shelter();
     try {
       // captureGraphics uses WebR's canvas graphics device to capture base R and
@@ -198,7 +293,30 @@ export async function runR(code) {
         .map(o => o.data)
         .join('\n');
       const images = await bitmapsToDataUrls(result.images);
-      return { stdout: output, error: null, images, graphicsAvailable, hasJsonlite };
+      const out = { stdout: output, error: null, images, graphicsAvailable, hasJsonlite };
+      if (writeback) {
+        out.saved = [];
+        out.saveErrors = [];
+        // Only a run that finished without an R error commits its saves.
+        const rErrored = (result.output || []).some(o => o.type === 'error');
+        try {
+          const pending = await collectRSaves(webR);
+          if (!rErrored && pending.length) {
+            const { saved, failed } = await materializeWritebackTables(
+              pending,
+              buildRuntimeWritebackDeps({
+                engine, state, provenance, onTableSaved,
+                registerObject: isEnabled('objectSpaceRegistry') ? registerObject : undefined,
+              }),
+            );
+            out.saved = saved;
+            out.saveErrors = failed;
+          }
+        } catch (e) {
+          out.saveErrors.push({ name: '(collect)', language: 'r', error: e && e.message ? e.message : String(e) });
+        }
+      }
+      return out;
     } finally {
       await shelter.purge();
     }

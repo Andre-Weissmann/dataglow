@@ -126,6 +126,7 @@
     "test:living-manifest": "node test/living-manifest.test.mjs",
     "test:agentsdrift": "node test/agents-md-drift.test.mjs",
     "test:pytruncation": "node --import ./test/duckdb-loader-hook.mjs test/python-bridge-truncation.test.mjs",
+    "test:polyglotwriteback": "node --import ./test/duckdb-loader-hook.mjs test/polyglot-writeback.test.mjs",
     "test:runtimecharts": "node test/runtime-charts.test.mjs",
     "test:csvrejects": "node test/csv-ignore-errors.test.mjs",
     "test:uploadformats": "node test/upload-formats.test.mjs",
