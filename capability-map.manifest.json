@@ -1780,6 +1780,58 @@
       "status": "shipped"
     },
     {
+      "id": "glow-canvas-refresh-and-storytelling",
+      "platforms": [
+        "browser",
+        "desktop"
+      ],
+      "area": "Language runtimes & visualization",
+      "name": "Glow Canvas live/API refresh and dashboard storytelling (Steps 6 + 9 Part 1, dark)",
+      "files": [
+        "js/runtimes-viz/glow-canvas.js",
+        "js/app-shell/tabs/glow-canvas-tab.js"
+      ],
+      "symbols": [
+        {
+          "file": "js/runtimes-viz/glow-canvas.js",
+          "name": "createRefreshRegistry"
+        },
+        {
+          "file": "js/runtimes-viz/glow-canvas.js",
+          "name": "summarizeDatasetReadiness"
+        },
+        {
+          "file": "js/runtimes-viz/glow-canvas.js",
+          "name": "isLiveFeedDataset"
+        },
+        {
+          "file": "js/runtimes-viz/glow-canvas.js",
+          "name": "updateCardStory"
+        },
+        {
+          "file": "js/runtimes-viz/glow-canvas.js",
+          "name": "updateBoardHeadline"
+        },
+        {
+          "file": "js/runtimes-viz/glow-canvas.js",
+          "name": "computeCalloutMetric"
+        },
+        {
+          "file": "js/runtimes-viz/glow-canvas.js",
+          "name": "buildCalloutSQL"
+        },
+        {
+          "file": "js/app-shell/tabs/glow-canvas-tab.js",
+          "name": "refreshDatasetOnCanvas"
+        }
+      ],
+      "relatedFlags": [
+        "glowCanvasLiveRefresh",
+        "glowCanvasStorytelling"
+      ],
+      "status": "behind-flag"
+    },
+    {
       "id": "pivot-table",
       "platforms": [
         "browser",
@@ -4258,7 +4310,11 @@
           "name": "buildVideoTranscriptDatasetName"
         }
       ],
-      "relatedFlags": ["videoTranscription", "audioTranscription", "cleaningCrew"],
+      "relatedFlags": [
+        "audioTranscription",
+        "cleaningCrew",
+        "videoTranscription"
+      ],
       "status": "behind-flag"
     },
     {
