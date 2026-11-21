@@ -16,6 +16,8 @@
     "test:audiostructurer": "node test/audio/audio-structurer.test.js",
     "test:audioreadinessgate": "node test/audio/audio-readiness-gate.test.js",
     "test:audiotranscription": "node test/cleaning-crew-audio-transcription.test.mjs",
+    "test:mediareview": "node --test test/audio/media-review.test.mjs test/video/video-ingestion-bridge.test.js",
+    "test:videobrowser": "node test/video/video-browser.test.mjs",
     "test:dialectadapter": "node test/sql-dialect-adapter.test.mjs",
     "test:provpacket": "node test/provenance-packet.test.mjs",
     "test:provregistry": "node test/provenance-registry-isolation.test.mjs",

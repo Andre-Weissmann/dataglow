@@ -153,6 +153,9 @@ jobs:
       - run: npm run test:audiostructurer
       - run: npm run test:audioreadinessgate
       - run: npm run test:audiotranscription
+      - run: npm run test:mediareview
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:videobrowser
 
   # Inline job, kept as-is post-consolidation (see glow-canvas's comment above
   # for why) — NOT a job-<name>.yml or job-ci-batch-NN.yml. This job (Batch 1

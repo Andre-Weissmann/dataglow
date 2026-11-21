@@ -746,3 +746,14 @@ Newest entries go at the bottom of **Entries**.
   ProvenanceFabric because of this freeze (`afterChange()` in both). Those files
   are hash-pinned in `canvas/integrity.manifest.json`, so re-wiring them is its
   own change with its own re-injection, not part of this fix.
+
+### Media review enforcement correction and unverified surfaces
+
+- Date: 2026-09-29
+- Description: PR #705 imported audio immediately and marked nonempty transcripts agent-consumable; its UI promised human confirmation but had no confirmation handler. The original tests explicitly expected the unsafe pass. The video batch cannot safely reuse that behavior.
+- Severity: high
+- Area: root Cleaning Crew audio/video ingestion
+- Status: fixed in the video-transcription-review branch, awaiting merge
+- Resolution: pending transcripts remain outside DuckDB/state, editable human review is revision-bound, and a single-use named confirmation is required to import. Cancellation/discard leave no dataset. Tests now assert enforcement rather than reassuring copy.
+- Follow-up: the separate canvas UI does not mount these root modules; native Tauri and physical mobile runtime proof remain open. The Tauri staging allowlist appears to omit `flags.manifest.json`; this pre-existing packaging issue must be investigated before claiming the media station is available in a packaged desktop build. Historical scaffold/docs estimates such as "95%+" and fixed transcription speed factors were never proof. The active video helpers no longer use those estimates.
+- Runtime proof: real Whisper downloaded and initialized on sandbox Chromium's software WebGPU adapter, but did not finish within 180 seconds. This is not a successful ASR/accuracy test; hardware-backed end-to-end proof remains required before recommending enablement.
