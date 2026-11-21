@@ -153,11 +153,13 @@ export function initDuckDB() {
     const opfsConsented = typeof localStorage !== 'undefined' &&
       localStorage.getItem(OPFS_CONSENT_KEY) === '1';
     let opfsPersistenceActive = false;
+    state.duckdb.opfsFallbackReason = null;
     if (shouldPersistToOPFS(isEnabled('opfsPersistence'), opfsConsented)) {
       try {
         await db.open(opfsDatabaseOpenConfig());
         opfsPersistenceActive = true;
       } catch (opfsOpenErr) {
+        state.duckdb.opfsFallbackReason = 'locked-or-unavailable: ' + (opfsOpenErr && opfsOpenErr.message || String(opfsOpenErr));
         console.warn('[DataGlow DuckDB] OPFS database open failed, falling back to in-memory: ' + (opfsOpenErr && opfsOpenErr.message || opfsOpenErr));
       }
     }
@@ -562,6 +564,17 @@ export async function createTableFromRows(tableName, columns, rows, { preserveTe
  */
 export function isOPFSPersistenceActive() {
   return state.duckdb.opfsPersistenceActive === true;
+}
+
+/**
+ * Why the CURRENT engine instance fell back to an in-memory database even
+ * though the flag + consent asked for OPFS persistence (e.g. another tab holds
+ * the exclusive OPFS lock). Returns null when OPFS is active or was never
+ * requested; otherwise a string beginning 'locked-or-unavailable: <error>'.
+ * @returns {string|null}
+ */
+export function getOPFSFallbackReason() {
+  return state.duckdb.opfsFallbackReason || null;
 }
 
 /**
