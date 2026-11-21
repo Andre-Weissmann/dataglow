@@ -334,5 +334,41 @@
       "notTouched": "Zero existing enabled flags flipped; all four new feature flags (glowCanvasLiveRefresh, glowCanvasStorytelling, polyglotWriteback, metricAccessEnforcement) and both scale flags (streamingIngestion, opfsPersistence) plus videoTranscription remain false in flags.manifest.json pending explicit One Confirm approval and physical GPU hardware testing for Steps 3-4. All five PRs (#709-#713) independently diff-reviewed, capability-map/AGENTS/canvas integrity verified, and 102/102 CI checks green."
     },
     "outcome": "shipped-dark"
+  },
+  {
+    "id": "chk_20261121_2",
+    "startedAt": "2026-11-21T18:31:00Z",
+    "endedAt": "2026-11-21T18:40:00Z",
+    "trigger": "run-end",
+    "title": "Roadmap Step 7 complete — enable streamingIngestion and opfsPersistence flags after user confirmation",
+    "before": {
+      "openPRs": 0,
+      "openIssues": 22,
+      "orphanBranches": 4,
+      "darkFlags": 8,
+      "ciStatus": "success"
+    },
+    "after": {
+      "openPRs": 0,
+      "openIssues": 22,
+      "orphanBranches": 4,
+      "darkFlags": 6,
+      "ciStatus": "success"
+    },
+    "diffstat": {
+      "filesChanged": 6,
+      "additions": 62,
+      "deletions": 14
+    },
+    "commits": [
+      "3a6664c"
+    ],
+    "prUrl": "https://github.com/Andre-Weissmann/dataglow/pull/714",
+    "verification": {
+      "testsRun": 85,
+      "testsPassed": 85,
+      "notTouched": "Only streamingIngestion and opfsPersistence flipped to true following explicit user confirmation of Step 7; OPFS still stays inactive unless the user enables the Settings consent toggle. Remaining 6 dark flags (videoTranscription, glowCanvasLiveRefresh, glowCanvasStorytelling, polyglotWriteback, metricAccessEnforcement, serverOffload) stay false."
+    },
+    "outcome": "shipped-live"
   }
 ]
