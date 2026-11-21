@@ -8,6 +8,16 @@
       "promotedInPR": "feat/phase6-end-to-end-unblock",
       "promotedNote": "Phase 6: Glow Canvas promoted live. The multi-chart dashboard is now the default experience alongside the single-chart Visualize tab."
     },
+    "glowCanvasLiveRefresh": {
+      "enabled": false,
+      "addedInPR": "feat/glow-canvas-refresh-and-storytelling",
+      "description": "Glow Canvas Step 6 (final Glow Compiler batch): live and API feed refresh. When on, each Glow Canvas card shows an honest readiness pill (Ready / Needs review / Unverified, derived only from real gateResult or layerResults via the existing readiness gate, never claimed without evidence), a freshness label, a manual Refresh button and, for API-backed tables, an opt-in poll interval select (default One-time fetch; no auto-polling without an explicit choice), plus a toolbar Refresh all. A failed refresh keeps the prior chart and shows a calm inline error pill; stopAllRefreshTimers clears every poll timer. Reuses js/ingestion/api-feed.js and js/gate/readiness-gate.js. Ships OFF; with it off Glow Canvas renders byte-for-byte as before."
+    },
+    "glowCanvasStorytelling": {
+      "enabled": false,
+      "addedInPR": "feat/glow-canvas-refresh-and-storytelling",
+      "description": "Glow Canvas Step 9 Part 1: dashboard storytelling. When on, a board-level takeaway banner and per-card headline callout (count/sum/avg/min/max computed deterministically from real DuckDB rows via buildCalloutSQL, honoring the active cross-filter), chart note and 'So what' strip, authored by the user in a compact Story editor. No AI-generated numbers. Layout round-trips card.story and layout.headline only when set. Ships OFF; with it off Glow Canvas renders byte-for-byte as before."
+    },
     "drillFloor": {
       "enabled": true,
       "addedInPR": "feat/drill-floor-batch1-spot-the-sale",

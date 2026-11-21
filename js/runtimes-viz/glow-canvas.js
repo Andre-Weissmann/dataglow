@@ -48,6 +48,8 @@
 
 import { el } from '../app-shell/utils.js';
 import * as viz from './visualize.js';
+import { POLL_INTERVALS_MS, POLL_LABELS, buildPollSchedule } from '../ingestion/api-feed.js';
+import { computeReadinessGate } from '../gate/readiness-gate.js';
 
 // A card occupies a rectangle on a fixed-width grid. Batch 1 uses a simple
 // 2-column grid and a default card size of 1 column wide by 1 row tall; the
@@ -96,11 +98,34 @@ function normalizeLayout(layout) {
   const maxId = cards.reduce((m, c) => (Number.isFinite(c.id) && c.id > m ? c.id : m), 0);
   const declared = Number.isFinite(l.nextId) ? l.nextId : 1;
   const nextId = Math.max(declared, maxId + 1);
-  return {
-    cards: cards.map(c => ({ ...c, gridPos: { ...(c.gridPos || {}) } })),
+  const out = {
+    cards: cards.map(normalizeCard),
     nextId,
     activeFilter: normalizeFilter(l.activeFilter),
   };
+  // Step 9: the board-level headline is OPTIONAL and only present when non-empty,
+  // so a layout that never used storytelling serializes byte-for-byte as before.
+  const headline = normalizeHeadline(l.headline);
+  if (headline) out.headline = headline;
+  return out;
+}
+
+// Copy a card, normalizing an optional `story` (dropped when empty/garbage so
+// untouched cards stay exactly as lean as they were before storytelling existed).
+function normalizeCard(c) {
+  const { story, ...rest } = c;
+  const card = { ...rest, gridPos: { ...(c.gridPos || {}) } };
+  const ns = normalizeStory(story);
+  if (ns) card.story = ns;
+  return card;
+}
+
+// Carry the optional board headline (Step 9) through every pure mutator: a new
+// layout is built field-by-field, so without this the headline would be silently
+// dropped by add/remove/move/swap/filter. No headline -> object is unchanged.
+function withLayoutExtras(source, next) {
+  if (source && source.headline) next.headline = { ...source.headline };
+  return next;
 }
 
 // Find the next free grid slot, scanning row-by-row, column-by-column, so a new
@@ -157,7 +182,9 @@ export function addCard(layout, cardSpec = {}) {
     title: typeof spec.title === 'string' ? spec.title : '',
     gridPos,
   };
-  return { cards: [...l.cards, card], nextId: id + 1, activeFilter: l.activeFilter };
+  const story = normalizeStory(spec.story);
+  if (story) card.story = story;
+  return withLayoutExtras(l, { cards: [...l.cards, card], nextId: id + 1, activeFilter: l.activeFilter });
 }
 
 /**
@@ -170,7 +197,7 @@ export function addCard(layout, cardSpec = {}) {
  */
 export function removeCard(layout, cardId) {
   const l = normalizeLayout(layout);
-  return { cards: l.cards.filter(c => c.id !== cardId), nextId: l.nextId, activeFilter: l.activeFilter };
+  return withLayoutExtras(l, { cards: l.cards.filter(c => c.id !== cardId), nextId: l.nextId, activeFilter: l.activeFilter });
 }
 
 /**
@@ -199,7 +226,7 @@ export function updateCardPosition(layout, cardId, gridPos = {}) {
       },
     };
   });
-  return { cards, nextId: l.nextId, activeFilter: l.activeFilter };
+  return withLayoutExtras(l, { cards, nextId: l.nextId, activeFilter: l.activeFilter });
 }
 
 /**
@@ -227,7 +254,7 @@ export function swapCards(layout, cardId, otherCardId) {
     if (c.id === otherCardId) return { ...c, gridPos: aPos };
     return c;
   });
-  return { cards, nextId: l.nextId, activeFilter: l.activeFilter };
+  return withLayoutExtras(l, { cards, nextId: l.nextId, activeFilter: l.activeFilter });
 }
 
 // ---------- cross-filter (Batch 2): a single canvas-wide active filter ----------
@@ -246,7 +273,7 @@ export function swapCards(layout, cardId, otherCardId) {
  */
 export function setActiveFilter(layout, filter) {
   const l = normalizeLayout(layout);
-  return { cards: l.cards, nextId: l.nextId, activeFilter: normalizeFilter(filter) };
+  return withLayoutExtras(l, { cards: l.cards, nextId: l.nextId, activeFilter: normalizeFilter(filter) });
 }
 
 /**
@@ -256,7 +283,7 @@ export function setActiveFilter(layout, filter) {
  */
 export function clearActiveFilter(layout) {
   const l = normalizeLayout(layout);
-  return { cards: l.cards, nextId: l.nextId, activeFilter: null };
+  return withLayoutExtras(l, { cards: l.cards, nextId: l.nextId, activeFilter: null });
 }
 
 /**
@@ -272,9 +299,9 @@ export function toggleFilter(layout, filter) {
   const next = normalizeFilter(filter);
   const cur = l.activeFilter;
   if (next && cur && cur.table === next.table && cur.column === next.column && cur.value === next.value) {
-    return { cards: l.cards, nextId: l.nextId, activeFilter: null };
+    return withLayoutExtras(l, { cards: l.cards, nextId: l.nextId, activeFilter: null });
   }
-  return { cards: l.cards, nextId: l.nextId, activeFilter: next };
+  return withLayoutExtras(l, { cards: l.cards, nextId: l.nextId, activeFilter: next });
 }
 
 // Escape a value as a DuckDB/standard-SQL single-quoted string literal by
@@ -333,6 +360,323 @@ export function deserializeLayout(json) {
   return normalizeLayout(parsed);
 }
 
+// ============================================================
+// STEP 9 (Part 1) — Dashboard storytelling: headline callouts, chart notes and
+// "so what" framing. Ships DARK behind `glowCanvasStorytelling` (checked by the
+// CALLER, never here). Every NUMBER a callout shows comes deterministically
+// from real rows / DuckDB SQL — nothing in this section generates a figure.
+// Words (label / note / so-what) are authored by the human in the card editor.
+// ============================================================
+
+export const STORY_AGGREGATIONS = ['count', 'sum', 'avg', 'min', 'max'];
+
+function cleanText(v) {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
+// Normalize any value into a well-formed card story, or null when empty/garbage.
+function normalizeStory(story) {
+  if (!story || typeof story !== 'object') return null;
+  const agg = typeof story.agg === 'string' && STORY_AGGREGATIONS.includes(story.agg.trim().toLowerCase())
+    ? story.agg.trim().toLowerCase() : '';
+  const out = {
+    headlineLabel: cleanText(story.headlineLabel),
+    agg,
+    col: cleanText(story.col),
+    note: cleanText(story.note),
+    soWhat: cleanText(story.soWhat),
+  };
+  const empty = !out.headlineLabel && !out.agg && !out.col && !out.note && !out.soWhat;
+  return empty ? null : out;
+}
+
+// Normalize the optional board-level {title, takeaway}; null when both empty.
+function normalizeHeadline(headline) {
+  if (!headline || typeof headline !== 'object') return null;
+  const out = { title: cleanText(headline.title), takeaway: cleanText(headline.takeaway) };
+  return (!out.title && !out.takeaway) ? null : out;
+}
+
+/**
+ * PURE. Return a NEW layout with the target card's story attached/updated. The
+ * `storySpec` is merged over the card's existing story (so a partial edit is
+ * safe) and normalized; if every field ends up empty the `story` key is removed
+ * so untouched cards stay lean. Unknown ids leave the layout unchanged (fresh
+ * copy). The input layout is never mutated.
+ * @param {object} layout
+ * @param {number} cardId
+ * @param {{headlineLabel?:string, agg?:string, col?:string, note?:string, soWhat?:string}} storySpec
+ */
+export function updateCardStory(layout, cardId, storySpec = {}) {
+  const l = normalizeLayout(layout);
+  const spec = (storySpec && typeof storySpec === 'object') ? storySpec : {};
+  const cards = l.cards.map((c) => {
+    if (c.id !== cardId) return c;
+    const merged = normalizeStory({ ...(c.story || {}), ...spec });
+    const { story: _drop, ...rest } = c;
+    return merged ? { ...rest, story: merged } : rest;
+  });
+  return withLayoutExtras(l, { cards, nextId: l.nextId, activeFilter: l.activeFilter });
+}
+
+/**
+ * PURE. Return a NEW layout with the board-level headline set to
+ * `{title, takeaway}` (trimmed). Both empty removes the headline entirely, so
+ * a layout that never used storytelling is unchanged. Never mutates its input.
+ * @param {object} layout
+ * @param {{title?:string, takeaway?:string}|null} headlineSpec
+ */
+export function updateBoardHeadline(layout, headlineSpec) {
+  const l = normalizeLayout(layout);
+  const next = { cards: l.cards, nextId: l.nextId, activeFilter: l.activeFilter };
+  const headline = normalizeHeadline(headlineSpec);
+  if (headline) next.headline = headline;
+  return next;
+}
+
+function toFiniteNumber(v) {
+  if (v === null || v === undefined || typeof v === 'boolean') return null;
+  if (typeof v === 'string' && v.trim() === '') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * PURE + deterministic. Compute a headline metric over an array of row objects.
+ * count: with no `col`, the number of rows; with a `col`, the number of
+ * non-null/non-empty values. sum/avg/min/max: over the finite numeric values of
+ * `col`; null / '' / NaN / non-numeric values are ignored (and not counted).
+ * With no valid values sum/avg/min/max return value:null (never a made-up 0).
+ * @returns {{value:number|null, formatted:string, validCount:number}}
+ */
+export function computeCalloutMetric(rows, calloutSpec = {}) {
+  const spec = (calloutSpec && typeof calloutSpec === 'object') ? calloutSpec : {};
+  const list = Array.isArray(rows) ? rows : [];
+  const agg = typeof spec.agg === 'string' ? spec.agg.toLowerCase() : '';
+  const col = typeof spec.col === 'string' ? spec.col : '';
+  if (!STORY_AGGREGATIONS.includes(agg)) return { value: null, formatted: formatCalloutValue(null), validCount: 0 };
+  if (agg === 'count') {
+    let n = 0;
+    for (const r of list) {
+      if (!col) { n++; continue; }
+      const v = r && typeof r === 'object' ? r[col] : undefined;
+      if (v !== null && v !== undefined && v !== '' && !(typeof v === 'number' && Number.isNaN(v))) n++;
+    }
+    return { value: n, formatted: formatCalloutValue(n), validCount: n };
+  }
+  const nums = [];
+  if (col) {
+    for (const r of list) {
+      const n = toFiniteNumber(r && typeof r === 'object' ? r[col] : undefined);
+      if (n !== null) nums.push(n);
+    }
+  }
+  if (nums.length === 0) return { value: null, formatted: formatCalloutValue(null), validCount: 0 };
+  let value;
+  if (agg === 'sum') value = nums.reduce((a, b) => a + b, 0);
+  else if (agg === 'avg') value = nums.reduce((a, b) => a + b, 0) / nums.length;
+  else if (agg === 'min') value = nums.reduce((a, b) => (b < a ? b : a), nums[0]);
+  else value = nums.reduce((a, b) => (b > a ? b : a), nums[0]);
+  return { value, formatted: formatCalloutValue(value), validCount: nums.length };
+}
+
+/**
+ * PURE. Format a callout number for display ('—' when there is no value).
+ * Fixed 'en-US' so output is deterministic across machines/locales.
+ */
+export function formatCalloutValue(value) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  return value.toLocaleString('en-US', { maximumFractionDigits: 2 });
+}
+
+function quoteIdent(name) {
+  return `"${String(name).replace(/"/g, '""')}"`;
+}
+
+/**
+ * PURE. Build the DuckDB SQL for a callout so the number comes from the real
+ * table: one row {value, valid_count}. Identifiers are double-quoted (embedded
+ * quotes doubled). `whereClause` is the already-escaped cross-filter clause from
+ * filterWhereClause() ('' when none). Returns '' for an invalid spec (unknown
+ * aggregation, or a non-count aggregation with no column, or no table).
+ */
+export function buildCalloutSQL(table, calloutSpec = {}, whereClause = '') {
+  const spec = (calloutSpec && typeof calloutSpec === 'object') ? calloutSpec : {};
+  const agg = typeof spec.agg === 'string' ? spec.agg.toLowerCase() : '';
+  const col = typeof spec.col === 'string' ? spec.col : '';
+  if (typeof table !== 'string' || !table || !STORY_AGGREGATIONS.includes(agg)) return '';
+  const where = typeof whereClause === 'string' && whereClause.trim() ? ` WHERE ${whereClause.trim()}` : '';
+  let select;
+  if (agg === 'count') {
+    select = col
+      ? `COUNT(${quoteIdent(col)}) AS value, COUNT(${quoteIdent(col)}) AS valid_count`
+      : 'COUNT(*) AS value, COUNT(*) AS valid_count';
+  } else {
+    if (!col) return '';
+    const num = `TRY_CAST(${quoteIdent(col)} AS DOUBLE)`;
+    select = `${agg.toUpperCase()}(${num}) AS value, COUNT(${num}) AS valid_count`;
+  }
+  return `SELECT ${select} FROM ${quoteIdent(table)}${where}`;
+}
+
+// The cross-filter, applied in JS to in-memory rows (DOM-test / no-DuckDB
+// fallback). Mirrors filterWhereClause: only same-table cards react.
+function filterRowsByActiveFilter(rows, layout, card) {
+  const f = layout && layout.activeFilter;
+  if (!f || !card || card.table !== f.table) return rows;
+  return rows.filter((r) => r && String(r[f.column]) === f.value);
+}
+
+// ============================================================
+// STEP 6 — Live & API feed refresh. Ships DARK behind `glowCanvasLiveRefresh`
+// (checked by the CALLER). Everything here is pure / injectable so it runs in
+// plain Node; the actual fetch + DuckDB reload lives in glow-canvas-tab.js and
+// REUSES js/ingestion/api-feed.js and js/gate/readiness-gate.js (no copies).
+// ============================================================
+
+/**
+ * PURE. True when the dataset came from a live API feed: meta.format === 'api',
+ * or a meta.source that is an http(s) URL.
+ */
+export function isLiveFeedDataset(dataset) {
+  const meta = dataset && dataset.meta;
+  if (!meta || typeof meta !== 'object') return false;
+  if (meta.format === 'api') return true;
+  return Boolean(meta.source && typeof meta.source === 'string' && /^https?:\/\//i.test(meta.source));
+}
+
+/**
+ * PURE. An HONEST readiness summary for a dataset. Uses `dataset.gateResult`
+ * when present, else computes the gate from `dataset.layerResults` (reusing
+ * computeReadinessGate). When no validation evidence exists it says
+ * 'Unverified' — it NEVER claims 'Ready' without real gate evidence.
+ * @returns {{status:'ready'|'needs-review'|'unverified', label:string, ready:boolean, score?:number, detail?:string}}
+ */
+export function summarizeDatasetReadiness(dataset) {
+  const unverified = { status: 'unverified', label: 'Unverified', ready: false };
+  if (!dataset || typeof dataset !== 'object') return unverified;
+  let gate = null;
+  if (dataset.gateResult && typeof dataset.gateResult === 'object') gate = dataset.gateResult;
+  else if (dataset.layerResults && typeof dataset.layerResults === 'object') {
+    try { gate = computeReadinessGate(dataset.layerResults); } catch (_e) { gate = null; }
+  }
+  if (!gate || typeof gate.agentConsumable !== 'boolean') return unverified;
+  // A gate that evaluated zero layers carries no evidence either way.
+  if (Number.isFinite(gate.evaluatedLayerCount) && gate.evaluatedLayerCount === 0 && !gate.blockedByContract) return unverified;
+  const base = { score: gate.score, detail: gate.passingSummary };
+  return gate.agentConsumable
+    ? { status: 'ready', label: 'Ready', ready: true, ...base }
+    : { status: 'needs-review', label: 'Needs review', ready: false, ...base };
+}
+
+/**
+ * Per-table refresh state + timer owner. Refreshing one table updates every
+ * card bound to that table (cards just read registry.get(card.table)). A
+ * failed refresh only records the error — it never touches rows/charts, and
+ * keeps the previous lastRefreshedAt. Polling is strictly opt-in: the default
+ * pollIntervalMs is 0 (One-time fetch) and no timer exists until a user picks
+ * an interval; setting it back to 0 (or stopAllRefreshTimers()) clears timers.
+ * Timer functions are injectable so tests never use real timers.
+ * @param {{setIntervalFn?:Function, clearIntervalFn?:Function, now?:()=>number}} [deps]
+ */
+export function createRefreshRegistry(deps = {}) {
+  const setIntervalFn = deps.setIntervalFn || ((fn, ms) => setInterval(fn, ms));
+  const clearIntervalFn = deps.clearIntervalFn || ((h) => clearInterval(h));
+  const now = deps.now || (() => Date.now());
+  const states = new Map();
+  const timers = new Map();
+
+  const fresh = () => ({ lastRefreshedAt: null, status: 'idle', error: null, pollIntervalMs: 0 });
+  const ensure = (table) => {
+    if (!states.has(table)) states.set(table, fresh());
+    return states.get(table);
+  };
+  const clearTimer = (table) => {
+    if (timers.has(table)) { clearIntervalFn(timers.get(table)); timers.delete(table); }
+  };
+
+  const registry = {
+    /** A copy of the table's state (idle defaults for an unknown table). */
+    get(table) { return { ...(states.get(table) || fresh()) }; },
+    /** Mark a refresh as started; returns false if one is already in flight. */
+    markRefreshing(table) {
+      const s = ensure(table);
+      if (s.status === 'refreshing') return false;
+      s.status = 'refreshing';
+      s.error = null;
+      return true;
+    },
+    markSuccess(table, at) {
+      const s = ensure(table);
+      s.status = 'ok';
+      s.error = null;
+      s.lastRefreshedAt = Number.isFinite(at) ? at : now();
+    },
+    /** Record a failure; lastRefreshedAt is deliberately preserved. */
+    markError(table, error) {
+      const s = ensure(table);
+      s.status = 'error';
+      s.error = (error && error.message) ? String(error.message) : String(error || 'Refresh failed');
+    },
+    /**
+     * Set the opt-in poll interval for a table. 0 / unknown values mean
+     * One-time fetch and clear any timer. `tick` runs on each interval.
+     */
+    setPollInterval(table, ms, tick) {
+      const s = ensure(table);
+      clearTimer(table);
+      const valid = POLL_INTERVALS_MS.includes(ms) ? ms : 0;
+      s.pollIntervalMs = valid;
+      const schedule = buildPollSchedule(valid, 'GET', '', {});
+      if (!schedule.isOneShot && typeof tick === 'function') {
+        timers.set(table, setIntervalFn(tick, valid));
+      }
+      return s.pollIntervalMs;
+    },
+    /** Clear every active timer and reset every table back to One-time fetch. */
+    stopAllRefreshTimers() {
+      for (const t of [...timers.keys()]) clearTimer(t);
+      for (const s of states.values()) s.pollIntervalMs = 0;
+    },
+    /** Stop timers/state for tables that no longer have a card. */
+    pruneTables(activeTables) {
+      const keep = new Set(activeTables || []);
+      for (const t of [...states.keys()]) {
+        if (!keep.has(t)) { clearTimer(t); states.delete(t); }
+      }
+    },
+    activeTimerCount() { return timers.size; },
+    tables() { return [...states.keys()]; },
+  };
+  return registry;
+}
+
+/** Convenience wrapper so callers can stop timers without holding a method ref. */
+export function stopAllRefreshTimers(registry) {
+  if (registry && typeof registry.stopAllRefreshTimers === 'function') registry.stopAllRefreshTimers();
+}
+
+/** PURE. 'HH:MM:SS' (local time) for an epoch-ms timestamp. */
+export function formatClock(ms) {
+  const d = new Date(ms);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+/**
+ * PURE. The freshness label for a card: 'Refreshing…' while in flight,
+ * 'Updated HH:MM:SS' after a refresh (or from a feed's fetchedAt), 'Feed ready'
+ * for a live feed that has not been refreshed yet, else 'Static snapshot'.
+ */
+export function describeFreshness(dataset, refreshState) {
+  const st = refreshState || {};
+  if (st.status === 'refreshing') return 'Refreshing…';
+  if (Number.isFinite(st.lastRefreshedAt)) return `Updated ${formatClock(st.lastRefreshedAt)}`;
+  const fetched = dataset && dataset.meta && dataset.meta.fetchedAt ? Date.parse(dataset.meta.fetchedAt) : NaN;
+  if (Number.isFinite(fetched)) return `Updated ${formatClock(fetched)}`;
+  return isLiveFeedDataset(dataset) ? 'Feed ready' : 'Static snapshot';
+}
+
 // ---------- thin DOM renderer (browser-only, left to the e2e path) ----------
 
 /**
@@ -356,6 +700,17 @@ export function deserializeLayout(json) {
  *   discover on their own. Consumed once per render call — it is the CALLER's job to
  *   clear it after the first render (glow-canvas-tab.js does this), not this module's,
  *   since renderCanvas holds no state of its own between calls.
+ * @param {boolean} [opts.enableLiveRefresh]  Step 6: when exactly true, each card shows an
+ *   honest readiness pill, a freshness label, a manual Refresh button (and an opt-in poll
+ *   select for API feeds), plus a toolbar "Refresh all". Flag-agnostic: the CALLER reads
+ *   `glowCanvasLiveRefresh` and passes this. Related opts: onRefreshCard(card),
+ *   onRefreshAll(), onPollChange(card, ms), refreshRegistry (createRefreshRegistry()).
+ * @param {boolean} [opts.enableStorytelling]  Step 9: when exactly true, renders the board
+ *   takeaway banner, per-card headline callout / note / "So what" strip and the Story
+ *   editor. Caller reads `glowCanvasStorytelling`. Related opts: computeCallout(card,
+ *   whereClause) -> {value,formatted,validCount} | Promise of same (rows from DuckDB).
+ *   Without it, a synchronous fallback computes over `datasets[].rows` when present.
+ *   When BOTH enable opts are false/omitted the DOM output is identical to before.
  * @returns {{layout:object}|undefined}
  */
 export function renderCanvas(containerId, layout, opts = {}) {
@@ -363,6 +718,13 @@ export function renderCanvas(containerId, layout, opts = {}) {
   if (!host) return;
   const current = normalizeLayout(layout);
   const { onChange, datasets = [], renderChart = viz.renderChart, prefillTable = '' } = opts;
+  const enableLiveRefresh = opts.enableLiveRefresh === true;
+  const enableStorytelling = opts.enableStorytelling === true;
+  const refreshRegistry = opts.refreshRegistry || null;
+  const refreshStateFor = (table) => (refreshRegistry && typeof refreshRegistry.get === 'function'
+    ? refreshRegistry.get(table)
+    : { lastRefreshedAt: null, status: 'idle', error: null, pollIntervalMs: 0 });
+  const datasetFor = (table) => datasets.find((d) => d && d.table === table) || null;
   host.innerHTML = '';
 
   const emit = (next) => { if (typeof onChange === 'function') onChange(next); };
@@ -387,6 +749,31 @@ export function renderCanvas(containerId, layout, opts = {}) {
       style: 'color:var(--color-text-muted,#666); font-size:var(--text-sm,13px);',
     }, current.cards.length === 1 ? '1 chart' : `${current.cards.length} charts`),
   ];
+  if (enableLiveRefresh && typeof opts.onConnectApiFeed === "function") {
+    toolbarChildren.push(el("button", {
+      type: "button",
+      class: "btn btn-secondary",
+      "data-testid": "glow-canvas-connect-feed",
+      onclick: () => toggleFeedForm(),
+    }, "Connect API feed"));
+  }
+  if (enableLiveRefresh && current.cards.length > 0) {
+    toolbarChildren.push(el('button', {
+      type: 'button',
+      class: 'btn btn-secondary',
+      'data-testid': 'glow-canvas-refresh-all',
+      title: 'Refresh every table on this canvas (one-time fetch; no polling)',
+      onclick: () => { if (typeof opts.onRefreshAll === 'function') opts.onRefreshAll(); },
+    }, 'Refresh all'));
+  }
+  if (enableStorytelling) {
+    toolbarChildren.push(el('button', {
+      type: 'button',
+      class: 'btn btn-secondary',
+      'data-testid': 'glow-canvas-add-takeaway',
+      onclick: () => toggleTakeawayForm(),
+    }, current.headline ? 'Edit takeaway' : 'Add takeaway'));
+  }
   if (current.activeFilter) {
     const f = current.activeFilter;
     toolbarChildren.push(el('span', {
@@ -402,9 +789,78 @@ export function renderCanvas(containerId, layout, opts = {}) {
   }
   const toolbar = el('div', {
     'data-testid': 'glow-canvas-toolbar',
-    style: 'display:flex; align-items:center; gap:var(--space-2,8px); margin-bottom:var(--space-3,12px);',
+    style: 'display:flex; align-items:center; flex-wrap:wrap; gap:var(--space-2,8px); margin-bottom:var(--space-3,12px);',
   }, toolbarChildren);
   host.appendChild(toolbar);
+
+  // ---- Step 6: inline API feed connector (flag-gated + opt-in) ----
+  let feedForm = null;
+  let feedOpen = false;
+  function toggleFeedForm() {
+    if (!feedForm) return;
+    feedOpen = !feedOpen;
+    feedForm.style.display = feedOpen ? "flex" : "none";
+  }
+  if (enableLiveRefresh && typeof opts.onConnectApiFeed === "function") {
+    const fName = el("input", { "data-testid": "glow-canvas-feed-name", type: "text", placeholder: "Table name (e.g. live_claims)", class: "btn btn-secondary" });
+    const fUrl = el("input", { "data-testid": "glow-canvas-feed-url", type: "url", placeholder: "https://api.example.com/data.json", class: "btn btn-secondary", style: "min-width:240px;" });
+    const fErr = el("span", { "data-testid": "glow-canvas-feed-error", style: "display:none; color:var(--color-danger,#b00020); font-size:var(--text-xs,12px);" }, "");
+    const fSubmit = el("button", { type: "submit", class: "btn btn-primary", "data-testid": "glow-canvas-feed-submit" }, "Load feed");
+    feedForm = el("form", {
+      "data-testid": "glow-canvas-connect-feed-form",
+      style: "display:none; gap:var(--space-2,8px); flex-wrap:wrap; align-items:center; margin-bottom:var(--space-3,12px); padding:var(--space-3,12px); border:1px solid var(--color-border,#e2e2e2); border-radius:var(--radius,8px);",
+    }, [fName, fUrl, fSubmit, fErr]);
+    feedForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      fErr.style.display = "none";
+      fSubmit.disabled = true;
+      try {
+        await opts.onConnectApiFeed(fName.value, fUrl.value);
+      } catch (err) {
+        fErr.textContent = err && err.message ? err.message : String(err);
+        fErr.style.display = "inline";
+      } finally {
+        fSubmit.disabled = false;
+      }
+    });
+    host.appendChild(feedForm);
+  }
+
+  // ---- Step 9: board-level takeaway banner + its tiny editor (flag-gated) ----
+  let takeawayForm = null;
+  if (enableStorytelling) {
+    if (current.headline) {
+      host.appendChild(el('div', {
+        'data-testid': 'glow-canvas-board-story',
+        style: 'margin-bottom:var(--space-3,12px); padding:var(--space-3,12px) var(--space-4,16px); border-left:4px solid var(--color-accent,#0A7E8C); background:var(--color-surface-2,#f4f8f9); border-radius:var(--radius,8px);',
+      }, [
+        current.headline.title ? el('div', { 'data-testid': 'glow-canvas-board-story-title', style: 'font-weight:700; font-size:var(--text-base,15px);' }, current.headline.title) : null,
+        current.headline.takeaway ? el('div', { 'data-testid': 'glow-canvas-board-story-takeaway', style: 'font-size:var(--text-sm,13px); color:var(--color-text,#111);' }, current.headline.takeaway) : null,
+      ]));
+    }
+    const tTitle = el('input', { 'data-testid': 'glow-canvas-takeaway-title', type: 'text', placeholder: 'Dashboard title', class: 'btn btn-secondary' });
+    const tTake = el('input', { 'data-testid': 'glow-canvas-takeaway-text', type: 'text', placeholder: 'Key takeaway', class: 'btn btn-secondary' });
+    tTitle.value = current.headline ? current.headline.title : '';
+    tTake.value = current.headline ? current.headline.takeaway : '';
+    takeawayForm = el('form', {
+      'data-testid': 'glow-canvas-takeaway-form',
+      style: 'display:none; gap:var(--space-2,8px); flex-wrap:wrap; align-items:flex-end; margin-bottom:var(--space-3,12px);',
+    }, [
+      tTitle, tTake,
+      el('button', { type: 'submit', class: 'btn btn-primary', 'data-testid': 'glow-canvas-takeaway-save' }, 'Save takeaway'),
+    ]);
+    takeawayForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      emit(updateBoardHeadline(current, { title: tTitle.value, takeaway: tTake.value }));
+    });
+    host.appendChild(takeawayForm);
+  }
+  let takeawayOpen = false;
+  function toggleTakeawayForm() {
+    if (!takeawayForm) return;
+    takeawayOpen = !takeawayOpen;
+    takeawayForm.style.display = takeawayOpen ? 'flex' : 'none';
+  }
 
   // ---- inline add form (minimal; text-input fallback acceptable for Batch 1) ----
   // Batch 4: a non-empty prefillTable starts the form already open (display:flex)
@@ -455,6 +911,135 @@ export function renderCanvas(containerId, layout, opts = {}) {
   });
   function toggleAddForm() { form.style.display = form.style.display === 'none' ? 'flex' : 'none'; }
   host.appendChild(form);
+
+  // ---- Step 6: per-card live-refresh row (readiness, freshness, Refresh, poll) ----
+  function buildRefreshRow(card) {
+    const ds = datasetFor(card.table);
+    const rs = refreshStateFor(card.table);
+    const readiness = summarizeDatasetReadiness(ds);
+    const children = [
+      el('span', {
+        'data-testid': 'glow-canvas-card-readiness',
+        'data-status': readiness.status,
+        title: readiness.detail || 'No validation has been run on this table yet.',
+        style: 'padding:1px 6px; font-size:var(--text-xs,12px); border-radius:999px; border:1px solid var(--color-border,#e2e2e2);',
+      }, readiness.label),
+      el('span', {
+        'data-testid': 'glow-canvas-card-freshness',
+        style: 'font-size:var(--text-xs,12px); color:var(--color-text-muted,#666);',
+      }, describeFreshness(ds, rs)),
+      el('button', {
+        type: 'button',
+        class: 'btn btn-secondary',
+        'data-testid': 'glow-canvas-card-refresh',
+        'data-card-id': String(card.id),
+        disabled: rs.status === 'refreshing',
+        style: 'padding:2px 8px; font-size:var(--text-xs,12px);',
+        onclick: () => { if (typeof opts.onRefreshCard === 'function') opts.onRefreshCard(card); },
+      }, 'Refresh'),
+    ];
+    if (isLiveFeedDataset(ds)) {
+      const sel = el('select', {
+        'data-testid': 'glow-canvas-card-poll',
+        class: 'btn btn-secondary',
+        title: 'Auto-refresh interval (off by default)',
+        style: 'padding:2px 6px; font-size:var(--text-xs,12px);',
+        onchange: () => { if (typeof opts.onPollChange === 'function') opts.onPollChange(card, Number(sel.value)); },
+      }, POLL_INTERVALS_MS.map((ms, i) => el('option', ms === rs.pollIntervalMs ? { value: String(ms), selected: true } : { value: String(ms) }, POLL_LABELS[i])));
+      sel.value = String(rs.pollIntervalMs || 0);
+      children.push(sel);
+    }
+    if (rs.status === 'error') {
+      // Calm inline pill — the chart below is left exactly as it was.
+      children.push(el('span', {
+        'data-testid': 'glow-canvas-card-refresh-error',
+        title: rs.error || 'Refresh failed',
+        style: 'padding:1px 6px; font-size:var(--text-xs,12px); border-radius:999px; background:var(--color-warn-bg,#fff4e5); color:var(--color-warn,#8a5300);',
+      }, `Refresh failed${rs.error ? `: ${rs.error}` : ''} — showing last data`));
+    }
+    return el('div', {
+      'data-testid': 'glow-canvas-card-refresh-row',
+      style: 'display:flex; align-items:center; gap:var(--space-2,8px); flex-wrap:wrap; margin-bottom:var(--space-2,8px);',
+    }, children);
+  }
+
+  // ---- Step 9: headline callout (number always from real rows / SQL) ----
+  function buildCallout(card, whereClause) {
+    const story = card.story;
+    if (!story || !story.agg) return null;
+    const valueEl = el('div', {
+      'data-testid': 'glow-canvas-card-callout-value',
+      style: 'font-size:var(--text-xl,24px); font-weight:700; line-height:1.1;',
+    });
+    valueEl.textContent = '…';
+    const apply = (m) => { valueEl.textContent = m && typeof m.formatted === 'string' ? m.formatted : '—'; };
+    const fail = () => { valueEl.textContent = '—'; };
+    let result;
+    try {
+      if (typeof opts.computeCallout === 'function') {
+        result = opts.computeCallout(card, whereClause);
+      } else {
+        const ds = datasetFor(card.table);
+        result = ds && Array.isArray(ds.rows)
+          ? computeCalloutMetric(filterRowsByActiveFilter(ds.rows, current, card), story)
+          : null;
+      }
+    } catch (_e) { result = null; }
+    if (result && typeof result.then === 'function') result.then(apply, fail);
+    else if (result) apply(result);
+    else fail();
+    const label = story.headlineLabel || `${story.agg}${story.col ? ` of ${story.col}` : ''}`;
+    return el('div', {
+      'data-testid': 'glow-canvas-card-callout',
+      'data-agg': story.agg,
+      style: 'margin-bottom:var(--space-2,8px);',
+    }, [
+      valueEl,
+      el('div', {
+        'data-testid': 'glow-canvas-card-callout-label',
+        style: 'font-size:var(--text-xs,12px); color:var(--color-text-muted,#666);',
+      }, label + (whereClause ? ' (filtered)' : '')),
+    ]);
+  }
+
+  // ---- Step 9: compact per-card story editor, toggled by the Story button ----
+  function buildStoryEditor(card) {
+    const story = card.story || {};
+    const inLabel = el('input', { 'data-testid': 'glow-canvas-story-label', type: 'text', placeholder: 'Headline label', class: 'btn btn-secondary' });
+    const inAgg = el('select', { 'data-testid': 'glow-canvas-story-agg', class: 'btn btn-secondary' },
+      [el('option', { value: '' }, 'No headline number')].concat(STORY_AGGREGATIONS.map((a) => el('option', { value: a }, a))));
+    const inCol = el('input', { 'data-testid': 'glow-canvas-story-col', type: 'text', placeholder: 'Column (blank for row count)', class: 'btn btn-secondary' });
+    const inNote = el('input', { 'data-testid': 'glow-canvas-story-note', type: 'text', placeholder: 'Chart note', class: 'btn btn-secondary' });
+    const inSoWhat = el('input', { 'data-testid': 'glow-canvas-story-sowhat', type: 'text', placeholder: 'So what? What should someone do?', class: 'btn btn-secondary' });
+    inLabel.value = story.headlineLabel || '';
+    inAgg.value = story.agg || '';
+    inCol.value = story.col || '';
+    inNote.value = story.note || '';
+    inSoWhat.value = story.soWhat || '';
+    const editor = el('form', {
+      'data-testid': 'glow-canvas-story-editor',
+      style: 'display:none; gap:var(--space-2,8px); flex-wrap:wrap; margin-top:var(--space-2,8px);',
+    }, [
+      inLabel, inAgg, inCol, inNote, inSoWhat,
+      el('button', { type: 'submit', class: 'btn btn-primary', 'data-testid': 'glow-canvas-story-save' }, 'Save story'),
+    ]);
+    editor.addEventListener('submit', (e) => {
+      e.preventDefault();
+      emit(updateCardStory(current, card.id, {
+        headlineLabel: inLabel.value, agg: inAgg.value, col: inCol.value, note: inNote.value, soWhat: inSoWhat.value,
+      }));
+    });
+    let editorOpen = false;
+    const btn = el('button', {
+      type: 'button',
+      class: 'btn btn-secondary',
+      'data-testid': 'glow-canvas-card-story-btn',
+      'data-card-id': String(card.id),
+      style: 'margin-top:var(--space-2,8px); padding:2px 8px; font-size:var(--text-xs,12px);',
+      onclick: () => { editorOpen = !editorOpen; editor.style.display = editorOpen ? 'flex' : 'none'; },
+    }, 'Story');
+    return el('div', { 'data-testid': 'glow-canvas-card-story' }, [btn, editor]);
+  }
 
   // ---- empty state ----
   if (current.cards.length === 0) {
@@ -521,6 +1106,31 @@ export function renderCanvas(containerId, layout, opts = {}) {
       style: 'min-height:280px;',
     });
 
+    // Optional per-card sections (flag-gated). With both flags off, cardParts is
+    // exactly [header, chartBox] — identical to the pre-Step-6/9 card.
+    const cardParts = [header];
+    if (enableLiveRefresh) cardParts.push(buildRefreshRow(card));
+    if (enableStorytelling) {
+      const callout = buildCallout(card, whereClause);
+      if (callout) cardParts.push(callout);
+    }
+    cardParts.push(chartBox);
+    if (enableStorytelling) {
+      if (card.story && card.story.note) {
+        cardParts.push(el('div', {
+          'data-testid': 'glow-canvas-card-note',
+          style: 'margin-top:var(--space-2,8px); font-size:var(--text-xs,12px); color:var(--color-text-muted,#666);',
+        }, card.story.note));
+      }
+      if (card.story && card.story.soWhat) {
+        cardParts.push(el('div', {
+          'data-testid': 'glow-canvas-card-sowhat',
+          style: 'margin-top:var(--space-2,8px); padding:var(--space-2,8px) var(--space-3,12px); border-left:3px solid var(--color-accent,#0A7E8C); background:var(--color-surface-2,#f4f8f9); font-size:var(--text-sm,13px); border-radius:4px;',
+        }, [el('strong', {}, 'So what: '), card.story.soWhat]));
+      }
+      cardParts.push(buildStoryEditor(card));
+    }
+
     const cardEl = el('div', {
       class: `card glow-canvas-card${isFiltered ? ' glow-canvas-card--filtered' : ''}`,
       'data-testid': 'glow-canvas-card',
@@ -550,7 +1160,7 @@ export function renderCanvas(containerId, layout, opts = {}) {
         if (!Number.isFinite(draggedId) || draggedId === card.id) return;
         emit(swapCards(current, draggedId, card.id));
       },
-    }, [header, chartBox]);
+    }, cardParts);
     grid.appendChild(cardEl);
 
     // Delegate the actual draw to the existing single-chart renderer, per card,
