@@ -552,7 +552,7 @@ console.log('\nbuildRuntimeWritebackDeps + flag-off isolation');
   ok('default provenance wiring starts then appends to the chain', !!prov.getProvenance('t'));
 
   const flags = JSON.parse(readFileSync(new URL('../flags.manifest.json', import.meta.url), 'utf8')).flags;
-  ok('polyglotWriteback ships disabled', flags.polyglotWriteback?.enabled === false);
+  ok('polyglotWriteback ships enabled after Step 8 confirmation', flags.polyglotWriteback?.enabled === true);
   ok('polyglotWriteback names its PR', flags.polyglotWriteback?.addedInPR === 'feat/polyglot-writeback-to-duckdb');
   const keys = Object.keys(flags);
   ok('polyglotWriteback sits right after polyglotErrorAdvisor', keys[keys.indexOf('polyglotErrorAdvisor') + 1] === 'polyglotWriteback');

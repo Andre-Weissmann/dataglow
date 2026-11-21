@@ -123,6 +123,7 @@ dataglow_save_df <- function(name, df) {
   invisible(NULL)
 }
 .dataglow_json_str <- function(x) {
+  if (length(x) == 0L) return(character(0))
   x <- enc2utf8(as.character(x))
   x <- gsub("\\", "\\\\", x, fixed = TRUE)
   x <- gsub("\"", "\\\"", x, fixed = TRUE)
@@ -133,6 +134,7 @@ dataglow_save_df <- function(name, df) {
   paste0("\"", x, "\"")
 }
 .dataglow_json_col <- function(col) {
+  if (length(col) == 0L) return("[]")
   if (is.logical(col)) {
     v <- ifelse(is.na(col), "null", ifelse(col, "true", "false"))
   } else if (is.integer(col)) {
