@@ -129,6 +129,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:drillfloor
+      - run: npm run test:canvasinjectors
       - run: npm run test:drilldiff
 
   # Inline job, kept as-is post-consolidation (see glow-canvas's comment above

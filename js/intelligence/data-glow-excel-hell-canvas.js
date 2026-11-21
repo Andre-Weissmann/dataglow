@@ -264,7 +264,7 @@
     }
     var head = prev.columns.map(function (c) {
       return '<th style="text-align:left;padding:6px 8px;border-bottom:1px solid var(--border,#2A2C31);white-space:nowrap">' +
-        esc(c.name) + '<span style="display:block;font-size:9px;color:var(--text-muted,#8A8F98);font-weight:400">' + esc(c.type) + '</span></th>';
+        esc(c.name) + '<span style="display:block;font-size:var(--dg-text-xs);color:var(--text-muted,#8A8F98);font-weight:400">' + esc(c.type) + '</span></th>';
     }).join('');
     var bodyRows = prev.rows.map(function (r) {
       var tds = prev.columns.map(function (_c, i) {
